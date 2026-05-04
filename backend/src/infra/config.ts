@@ -9,8 +9,30 @@ import { z } from 'zod';
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // HS256 secret for signing access tokens (jose). 32 bytes minimum is the
+  // smallest size that doesn't waste entropy against the SHA-256 keyspace —
+  // anything shorter is silently weaker. We hard-fail at boot if the env var
+  // is missing or too short, rather than letting a dev-default leak into prod.
+  JWT_SECRET: z.string().min(32),
+  // Access token lifetime. 15 min is the PLAN.md choice: short enough that a
+  // stolen access token has a bounded blast radius, long enough that the
+  // single-flight refresh path doesn't fire on every other request. Coerced
+  // because env vars are strings.
+  ACCESS_TOKEN_TTL_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 15),
+  // Refresh token lifetime. 30 days mirrors typical mobile-app expectations
+  // (re-auth roughly monthly if the user goes dormant). Rotation on every
+  // /auth/refresh keeps each individual token short-lived in practice.
+  REFRESH_TOKEN_TTL_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 60 * 24 * 30),
 });
 
 // `Readonly<>` makes the inferred type immutable at compile time — you can't
