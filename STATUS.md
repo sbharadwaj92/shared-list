@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-04
-**Phase**: Phase 2 DONE — ready to begin Phase 3 (backend schema + migrations)
-**Next action**: design Drizzle schema for `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invites`, `refresh_tokens`; UUID v7 PKs, `updated_at` triggers, `deleted_at` columns, FK + `updated_at` indexes; generate first migration and apply; `activeLists()` / `activeItems()` repo helpers with Testcontainers-backed unit tests
+**Phase**: Phase 3 DONE — ready to begin Phase 4 (backend auth)
+**Next action**: build `POST /auth/signup`, `/login`, `/refresh`, `/logout` with `Bun.password` argon2id, `jose` JWT signing, refresh token table + rotation + reuse detection (sha256 hashes at rest), `requireAuth` middleware, Zod schemas + `@hono/zod-openapi` + `/swagger-ui`, `hono-rate-limiter` on auth endpoints, integration tests against Testcontainers with reuse-detection verification
 **Blockers**: none
 
 ---
@@ -43,13 +43,13 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] backend CI workflow added under `.github/workflows/backend.yml`
 - [x] `docs/learning/phase-02.md` written
 
-#### Phase 3 — Backend schema + migrations — NOT STARTED
-- [ ] Drizzle schema for `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invites`, `refresh_tokens`
-- [ ] UUID v7 PKs, `updated_at` triggers, `deleted_at` columns, indexes on FKs and `updated_at`
-- [ ] First migration generated and applied; verified with `psql`
-- [ ] Repo-layer helpers (`activeLists()`, `activeItems()`) compiled and unit-tested
-- [ ] Tests pass via `bun test` against Testcontainers Postgres
-- [ ] `docs/learning/phase-03.md` written
+#### Phase 3 — Backend schema + migrations — DONE 2026-05-04
+- [x] Drizzle schema for `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invites`, `refresh_tokens`
+- [x] UUID v7 PKs, `updated_at` triggers, `deleted_at` columns, indexes on FKs and `updated_at`
+- [x] First migration generated and applied; verified with `psql`
+- [x] Repo-layer helpers (`activeLists()`, `activeItems()`) compiled and unit-tested
+- [x] Tests pass via `bun test` against Testcontainers Postgres
+- [x] `docs/learning/phase-03.md` written
 
 ### Auth block (Phases 4–6)
 
@@ -240,6 +240,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 ```
 2026-05-04 — Phase 1 complete: monorepo scaffolded, pushed to github.com/sbharadwaj92/shared-list, mkcert + Caddy + lefthook ready, learning doc written.
 2026-05-04 — Phase 2 complete: backend skeleton (Bun + Hono + Pino + Zod config + Drizzle + Biome), docker-compose (Postgres 17 + Mailpit), Caddy under brew services with mkcert TLS, /health works end-to-end, backend CI workflow + real lefthook hooks live.
+2026-05-04 — Phase 3 complete: 7-table Drizzle schema (UUID v7 PKs, updated_at triggers via hand-written 0001 migration, soft-delete on lists/items/list_members), repo helpers (activeLists/activeItems/activeMembership), Testcontainers-backed integration tests (14 passing) covering soft-delete, trigger, FK cascade, and case-insensitive email uniqueness.
 ```
 
 ---
