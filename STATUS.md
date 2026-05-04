@@ -8,9 +8,9 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 
 ## Right now
 
-**Last updated**: not yet started
-**Phase**: none — pre-execution
-**Next action**: begin Phase 1 (repo + tooling bootstrap)
+**Last updated**: 2026-05-04
+**Phase**: Phase 1 DONE — ready to begin Phase 2 (backend skeleton)
+**Next action**: scaffold `backend/` with Bun + Hono + TypeScript, `docker-compose.yml` for Postgres 17 + Mailpit, Caddyfile, typed Zod-validated config, Pino + request-ID middleware, `/health` endpoint, Drizzle Kit, Biome, real lefthook hooks, backend CI workflow
 **Blockers**: none
 
 ---
@@ -23,13 +23,13 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 
 ### Foundation block (Phases 1–3)
 
-#### Phase 1 — Repo + tooling bootstrap — NOT STARTED
-- [ ] monorepo at `~/Projects/shared-list/` with Bun workspaces, lefthook, .gitignore, README
-- [ ] `KNOWN_DEBT.md`, `STATUS.md`, `LEARNING_PROTOCOL.md`, `CLAUDE.md` committed at root
-- [ ] `docs/learning/` directory with placeholder `phase-01.md`
-- [ ] pushed to public GitHub as `shared-list`
-- [ ] Caddy + mkcert installed; local CA in macOS trust store
-- [ ] `docs/learning/phase-01.md` written per learning protocol
+#### Phase 1 — Repo + tooling bootstrap — DONE 2026-05-04
+- [x] monorepo at `~/Projects/shared-list/` with Bun workspaces, lefthook, .gitignore, README
+- [x] `KNOWN_DEBT.md`, `STATUS.md`, `LEARNING_PROTOCOL.md`, `CLAUDE.md` committed at root
+- [x] `docs/learning/` directory with placeholder `phase-01.md`
+- [x] pushed to public GitHub as `shared-list` (https://github.com/sbharadwaj92/shared-list)
+- [x] Caddy + mkcert installed; local CA in macOS trust store
+- [x] `docs/learning/phase-01.md` written per learning protocol
 
 #### Phase 2 — Backend skeleton — NOT STARTED
 - [ ] `backend/` with Bun + Hono + TypeScript
@@ -238,7 +238,7 @@ Open-ended. Pick one (or more):
 One line per session. Append at session end. Format: `YYYY-MM-DD — <what got done in 1 sentence>`. Treat this as a project diary; future-you will thank present-you when reconstructing why a decision was made.
 
 ```
-(empty — first session pending)
+2026-05-04 — Phase 1 complete: monorepo scaffolded, pushed to github.com/sbharadwaj92/shared-list, mkcert + Caddy + lefthook ready, learning doc written.
 ```
 
 ---
