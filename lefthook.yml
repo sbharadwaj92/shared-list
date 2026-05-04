@@ -1,13 +1,26 @@
 # Lefthook git hook config.
 #
-# Phase 1: file exists so Phase 2 can attach real hooks without touching git config again.
-# Real Biome + bun-test hooks land in Phase 2 once backend code exists.
-# Until then, these stages are intentionally empty — running `lefthook install` is still safe.
+# Pre-commit runs the cheap, scoped checks: Biome on staged files (auto-fix and re-stage),
+# plus the backend test suite. Pre-push runs the slower whole-project typecheck
+# so we catch type errors before CI.
+#
+# All commands assume the backend workspace is installed (`bun install` at repo root).
 
 pre-commit:
   parallel: true
-  commands: {}
+  commands:
+    biome:
+      glob: 'backend/**/*.{ts,tsx,js,jsx,json}'
+      run: bunx --bun biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    backend-test:
+      glob: 'backend/**/*.ts'
+      root: backend/
+      run: bun test
 
 pre-push:
   parallel: true
-  commands: {}
+  commands:
+    backend-typecheck:
+      root: backend/
+      run: bun run typecheck

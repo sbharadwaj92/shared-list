@@ -27,6 +27,11 @@ service-account*.json
 google-services.json
 GoogleService-Info.plist
 
+# Local TLS certs (mkcert-generated, machine-specific, never share)
+backend/certs/
+*.crt
+*.key
+
 # OS
 .DS_Store
 Thumbs.db

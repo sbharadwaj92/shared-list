@@ -1,0 +1,25 @@
+# Local TLS reverse proxy for the shared-list backend.
+#
+# Cert/key are generated locally with mkcert (Phase 1 setup):
+#   cd backend/certs && mkcert -cert-file dev.crt -key-file dev.key \
+#     Santoshs-MacBook-Pro-48.local localhost 127.0.0.1
+# `mkcert -install` puts the local CA into the macOS / iOS / Android trust stores;
+# `tls internal` would make Caddy ignore mkcert and use its own CA — wrong here.
+#
+# Privileged port 443 binding on macOS requires Caddy to run under launchd via
+# `brew services start caddy`. The Homebrew formula installs a plist that
+# binds privileged ports without sudo. The Caddyfile read by that service is
+# /opt/homebrew/etc/Caddyfile — symlink this file there:
+#   ln -sf "$(pwd)/backend/Caddyfile" /opt/homebrew/etc/Caddyfile
+#   brew services restart caddy
+# Logs land in /opt/homebrew/var/log/caddy.log.
+
+{
+  admin off
+}
+
+Santoshs-MacBook-Pro-48.local, localhost {
+  tls /Users/santoshbharadwaj/Projects/shared-list/backend/certs/dev.crt /Users/santoshbharadwaj/Projects/shared-list/backend/certs/dev.key
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3000
+}

@@ -1,0 +1,33 @@
+# Local-only services for the shared-list backend.
+# Postgres holds app data; Mailpit captures outbound mail (used in Phase 4+ for password reset).
+# The Bun server itself runs on the host via `bun --watch` for fastest iteration.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: shared-list-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shared_list}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shared_list}
+      POSTGRES_DB: ${POSTGRES_DB:-shared_list}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-shared_list} -d ${POSTGRES_DB:-shared_list}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: shared-list-mailpit
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
+
+volumes:
+  postgres_data:
+    name: shared-list-postgres-data
