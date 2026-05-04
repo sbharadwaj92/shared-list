@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-04
-**Phase**: Phase 3 DONE — ready to begin Phase 4 (backend auth)
-**Next action**: build `POST /auth/signup`, `/login`, `/refresh`, `/logout` with `Bun.password` argon2id, `jose` JWT signing, refresh token table + rotation + reuse detection (sha256 hashes at rest), `requireAuth` middleware, Zod schemas + `@hono/zod-openapi` + `/swagger-ui`, `hono-rate-limiter` on auth endpoints, integration tests against Testcontainers with reuse-detection verification
+**Phase**: Phase 4 DONE — ready to begin Phase 5 (iOS auth)
+**Next action**: create Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency), folder structure, custom `KeychainStore` wrapper, `TokenStore`, `APIClient` with auth header injection + 401 → single-flight refresh → retry, `AppContainer` (manual DI), `RootView` + `LoginFlowView`, Swift Testing unit tests + previews, iOS GitHub Actions workflow at end of phase
 **Blockers**: none
 
 ---
@@ -53,18 +53,18 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 
 ### Auth block (Phases 4–6)
 
-#### Phase 4 — Backend auth — NOT STARTED
-- [ ] `POST /auth/signup`, `/login`, `/refresh`, `/logout`
-- [ ] `Bun.password` with argon2id
-- [ ] `jose` JWT signing
-- [ ] Refresh token table + rotation + reuse detection (revoke-all)
-- [ ] Refresh tokens hashed at rest (sha256)
-- [ ] `requireAuth` middleware verifies access tokens
-- [ ] Zod schemas + `@hono/zod-openapi` + `/swagger-ui`
-- [ ] `hono-rate-limiter` on auth endpoints
-- [ ] Integration tests against Testcontainers
-- [ ] Reuse-detection verified: used refresh token invalidates user's tokens
-- [ ] `docs/learning/phase-04.md` written
+#### Phase 4 — Backend auth — DONE 2026-05-04
+- [x] `POST /auth/signup`, `/login`, `/refresh`, `/logout`
+- [x] `Bun.password` with argon2id
+- [x] `jose` JWT signing
+- [x] Refresh token table + rotation + reuse detection (revoke-all)
+- [x] Refresh tokens hashed at rest (sha256)
+- [x] `requireAuth` middleware verifies access tokens
+- [x] Zod schemas + `@hono/zod-openapi` + `/swagger-ui`
+- [x] `hono-rate-limiter` on auth endpoints
+- [x] Integration tests against Testcontainers
+- [x] Reuse-detection verified: used refresh token invalidates user's tokens
+- [x] `docs/learning/phase-04.md` written
 
 #### Phase 5 — iOS auth — NOT STARTED
 - [ ] Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency)
@@ -241,6 +241,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-04 — Phase 1 complete: monorepo scaffolded, pushed to github.com/sbharadwaj92/shared-list, mkcert + Caddy + lefthook ready, learning doc written.
 2026-05-04 — Phase 2 complete: backend skeleton (Bun + Hono + Pino + Zod config + Drizzle + Biome), docker-compose (Postgres 17 + Mailpit), Caddy under brew services with mkcert TLS, /health works end-to-end, backend CI workflow + real lefthook hooks live.
 2026-05-04 — Phase 3 complete: 7-table Drizzle schema (UUID v7 PKs, updated_at triggers via hand-written 0001 migration, soft-delete on lists/items/list_members), repo helpers (activeLists/activeItems/activeMembership), Testcontainers-backed integration tests (14 passing) covering soft-delete, trigger, FK cascade, and case-insensitive email uniqueness.
+2026-05-04 — Phase 4 complete: backend auth (signup/login/refresh/logout/me) with argon2id, jose HS256 JWTs, refresh-token rotation + reuse detection (sha256 hashes, revoke-all on replay), requireAuth middleware, @hono/zod-openapi + Swagger UI at /swagger-ui, hono-rate-limiter, 45 tests passing (10 service + 10 integration + 1 rate-limit + 4 password + 6 token + others), zod bumped to v4 for compat. Break-it: replayed refresh-token over real TLS, confirmed revoke-all on multi-device.
 ```
 
 ---
