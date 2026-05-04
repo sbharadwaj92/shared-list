@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 5 IN PROGRESS (started 2026-05-04) — fully verified on iPhone 15 Pro Max; awaiting CI green on push
-**Next action**: push `phase-05-ios-auth`, open PR, wait for `ios` and `backend` CI to go green; then flip Phase 5 to DONE and start Phase 6
+**Phase**: Phase 5 IN PROGRESS (started 2026-05-04) — all Done criteria met; PR #6 green, awaiting merge
+**Next action**: merge PR #6 (https://github.com/sbharadwaj92/shared-list/pull/6); once merged, flip Phase 5 → DONE in STATUS, then start Phase 6 (Android auth, mirroring Phase 5 against `EncryptedSharedPreferences` + Ktor + Compose)
 **Blockers**: none
 
 ---
@@ -78,7 +78,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] Sign up + log in + log out works on Simulator and physical iPhone (verified on iPhone 15 Pro Max 2026-05-05 against the local backend)
 - [x] Refresh token survives app restart (verified on iPhone 15 Pro Max 2026-05-05)
 - [x] iOS GitHub Actions workflow added (`.github/workflows/ios.yml`)
-- [ ] iOS CI green on real build (will verify after push)
+- [x] iOS CI green on real build (PR #6 — `xcodebuild test` 3m10s on macos-15, `lint + typecheck + test` 43s on ubuntu-latest)
 - [x] `docs/learning/phase-05.md` written
 
 #### Phase 6 — Android auth — NOT STARTED
@@ -243,7 +243,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-04 — Phase 3 complete: 7-table Drizzle schema (UUID v7 PKs, updated_at triggers via hand-written 0001 migration, soft-delete on lists/items/list_members), repo helpers (activeLists/activeItems/activeMembership), Testcontainers-backed integration tests (14 passing) covering soft-delete, trigger, FK cascade, and case-insensitive email uniqueness.
 2026-05-04 — Phase 4 complete: backend auth (signup/login/refresh/logout/me) with argon2id, jose HS256 JWTs, refresh-token rotation + reuse detection (sha256 hashes, revoke-all on replay), requireAuth middleware, @hono/zod-openapi + Swagger UI at /swagger-ui, hono-rate-limiter, 45 tests passing (10 service + 10 integration + 1 rate-limit + 4 password + 6 token + others), zod bumped to v4 for compat. Break-it: replayed refresh-token over real TLS, confirmed revoke-all on multi-device.
 2026-05-04 — Phase 5 code complete: ios/ scaffolded via XcodeGen (project.yml, .gitignore, README), custom KeychainStore over Security.framework + InMemoryKeychainStore for tests, @MainActor @Observable TokenStore, APIClient with single-flight refresh via RefreshCoordinator actor, AppContainer manual DI, RootView + LoginFlowView with previews, 18 Swift Testing tests passing (5 APIClient incl. concurrent-refresh-collapses-to-one, 5 KeychainStore real, 3 InMemory, 5 TokenStore), .github/workflows/ios.yml on macos-15, docs/learning/phase-05.md written. Backend fix landed in same PR: Zod validation errors now use the standard {error:{code,message,requestId}} envelope via OpenAPIHono defaultHook (validation-hook.ts + 4 unit tests + strengthened integration tests, 49/49 backend tests pass).
-2026-05-05 — Phase 5 verified end-to-end on physical iPhone 15 Pro Max against local backend: signup (201) → post-auth screen, sign out → login screen, log in (200) → post-auth screen, force-quit + relaunch → post-auth screen (refresh-token survives restart). All Done criteria met except CI green; pushing branch + opening PR.
+2026-05-05 — Phase 5 verified end-to-end on physical iPhone 15 Pro Max against local backend: signup (201) → post-auth screen, sign out → login screen, log in (200) → post-auth screen, force-quit + relaunch → post-auth screen (refresh-token survives restart). PR #6 opened with three commits (iOS scaffold, backend Zod-envelope fix, login-validator user-enumeration fix); all CI green (backend 43s, iOS 3m10s). Awaiting merge.
 ```
 
 ---
