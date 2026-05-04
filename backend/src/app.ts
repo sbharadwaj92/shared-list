@@ -5,6 +5,7 @@ import { healthRoutes } from './features/health/routes.ts';
 import type { Database } from './infra/db.ts';
 import { onError } from './infra/middleware/error.ts';
 import { type RequestIdVariables, requestId } from './infra/middleware/request-id.ts';
+import { validationHook } from './infra/middleware/validation-hook.ts';
 
 // Hono lets us declare a per-app `Env` to type `c.set/c.get`. Anything we put
 // on the request context flows through this type, so feature handlers can
@@ -31,7 +32,12 @@ export type BuildAppOptions = {
 };
 
 export const buildApp = (db: Database, opts: BuildAppOptions = {}): OpenAPIHono<AppEnv> => {
-  const app = new OpenAPIHono<AppEnv>();
+  // `defaultHook` reshapes Zod validation failures into our standard
+  // `{error:{code,message,requestId}}` envelope. Without this, a request
+  // body that fails Zod parsing (e.g. password too short) returns the raw
+  // ZodError tree, which is unreadable in client UIs. See
+  // `validation-hook.ts` for the full rationale.
+  const app = new OpenAPIHono<AppEnv>({ defaultHook: validationHook });
 
   // Order matters: requestId must run *before* any handler that wants
   // `c.get('logger')`. `app.use('*', ...)` registers a middleware that runs

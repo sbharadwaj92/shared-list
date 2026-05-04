@@ -77,19 +77,28 @@ describe('auth integration (HTTP)', () => {
     }
   });
 
-  test('POST /auth/signup with missing fields returns 400', async () => {
+  test('POST /auth/signup with missing fields returns 400 with the standard error envelope', async () => {
     const res = await app.request('/auth/signup', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'a@b.c' }),
     });
-    // OpenAPIHono's default validation handler returns 400 with a Zod error.
-    // We don't pin the body shape — only the status — so we'd notice if a
-    // future zod-openapi version changes the default handler.
     expect(res.status).toBe(400);
+
+    // The central `validationHook` reshapes Zod failures into the same
+    // envelope as every other error path. Without it, OpenAPIHono dumps
+    // the raw ZodError tree, which surfaces in client UIs as a wall of
+    // JSON. Pin the shape here so the regression doesn't slide back.
+    const body = (await res.json()) as {
+      error: { code: string; message: string; requestId: string };
+    };
+    expect(body.error.code).toBe('validation_error');
+    expect(typeof body.error.message).toBe('string');
+    expect(body.error.message.length).toBeGreaterThan(0);
+    expect(typeof body.error.requestId).toBe('string');
   });
 
-  test('POST /auth/signup with too-short password returns 400', async () => {
+  test('POST /auth/signup with too-short password returns 400 with a useful message', async () => {
     const res = await app.request('/auth/signup', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -100,6 +109,15 @@ describe('auth integration (HTTP)', () => {
       }),
     });
     expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      error: { code: string; message: string; requestId: string };
+    };
+    expect(body.error.code).toBe('validation_error');
+    // The message should mention the failing field by path so the iOS UI
+    // can render a useful hint to the user without parsing structured detail.
+    expect(body.error.message).toContain('password');
+    expect(body.error.message).toContain('12');
   });
 
   test('duplicate signup returns 409 with the central error envelope', async () => {

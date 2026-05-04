@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import type { Database } from '../../infra/db.ts';
 import { type AuthVariables, requireAuth } from '../../infra/middleware/auth.ts';
 import type { RequestIdVariables } from '../../infra/middleware/request-id.ts';
+import { validationHook } from '../../infra/middleware/validation-hook.ts';
 import { rateLimits } from './rate-limits.ts';
 import { findUserById } from './repo.ts';
 import {
@@ -161,7 +162,10 @@ export const buildAuthRoutes = (
   opts: BuildAuthRoutesOptions = {},
 ): OpenAPIHono<Env> => {
   const enableRateLimits = opts.enableRateLimits ?? true;
-  const authRoutes = new OpenAPIHono<Env>();
+  // Subapp also needs the validation hook — `defaultHook` is per-instance,
+  // not inherited from the parent `buildApp` instance. Without this, a
+  // POST /auth/signup with a bad body still returns the raw ZodError.
+  const authRoutes = new OpenAPIHono<Env>({ defaultHook: validationHook });
 
   // Register the bearer-auth security scheme so the meRoute `security` block
   // resolves to a real definition in the generated OpenAPI doc. Without this,
