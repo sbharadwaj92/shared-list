@@ -1,0 +1,126 @@
+# XcodeGen spec — single source of truth for the SharedList iOS project.
+#
+# Why XcodeGen? An .xcodeproj is a directory of XML/plist files mutated by
+# Xcode's GUI. In a multi-developer (or multi-machine) repo, those files
+# generate noisy diffs and merge conflicts that have nothing to do with code.
+# XcodeGen lets us treat the project as data: this YAML is checked in, the
+# generated SharedList.xcodeproj is gitignored, and `xcodegen generate` is
+# the only way to recreate it. Every developer (and CI) gets the same project.
+#
+# Run `xcodegen generate` from this directory after editing this file.
+
+name: SharedList
+
+# iOS 26 minimum (PLAN.md). We accept the cost of a small device pool in
+# exchange for being able to use Observation, SwiftData, and the rest of the
+# 26-era SwiftUI surface without compatibility shims.
+options:
+  bundleIdPrefix: in.santosh-bharadwaj
+  deploymentTarget:
+    iOS: "26.0"
+  # Generate a hidden xcconfig per build configuration so most settings live
+  # under `settings:` here, not inside the .xcodeproj. Cleaner diffs.
+  generateEmptyDirectories: true
+  createIntermediateGroups: true
+
+# Repo-wide settings inherited by every target. Per-target settings can override.
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Swift 6 strict concurrency. PLAN.md mandates this; it forces us to think
+    # about actor isolation up-front rather than chasing data races later.
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: "YES"
+    # Build settings for an app, not a framework — affects bitcode, code-signing.
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+    # Disable a few warnings-as-errors that bite during early scaffolding.
+    GCC_TREAT_WARNINGS_AS_ERRORS: "NO"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"
+
+targets:
+  SharedList:
+    type: application
+    platform: iOS
+    sources:
+      - path: SharedList
+        # Exclude any test files that might be co-located with sources later.
+        excludes:
+          - "**/*.test.swift"
+    resources:
+      - path: SharedList/Resources
+    info:
+      # Inline Info.plist so we don't keep a separate file in sync. XcodeGen
+      # generates the plist on `xcodegen generate`. ATS keys allow plaintext
+      # localhost during testing AND trust mkcert-issued certs on the .local
+      # hostname (the cert is trusted via System keychain on dev machines, but
+      # iOS Simulator inherits that trust; physical devices need the mkcert
+      # rootCA installed — see ios/README.md).
+      path: SharedList/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: SharedList
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # ATS exception for the .local mkcert host. iOS won't load HTTP from
+        # arbitrary IPs without this; even though we're using TLS, the
+        # Bonjour-style hostname needs an explicit exception. See
+        # https://developer.apple.com/documentation/bundleresources/information_property_list/nsapptransportsecurity
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            "santoshs-macbook-pro-48.local":
+              NSIncludesSubdomains: false
+              NSExceptionAllowsInsecureHTTPLoads: false
+              NSExceptionRequiresForwardSecrecy: true
+              NSExceptionMinimumTLSVersion: "TLSv1.2"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: in.santosh-bharadwaj.sharedlist
+        TARGETED_DEVICE_FAMILY: "1"  # iPhone only for v1
+        # Ad-hoc / personal team signing — set TEAM_ID via env or Xcode UI;
+        # left blank here so the YAML is portable across machines.
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        # Enable Keychain Sharing? No — we use one keychain access group
+        # implicitly tied to the bundle ID. Add later if we ship an extension.
+        ENABLE_PREVIEWS: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # No Mac Catalyst, no visionOS for v1.
+        SUPPORTS_MACCATALYST: "NO"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "NO"
+
+  SharedListTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SharedListTests
+    dependencies:
+      - target: SharedList
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: in.santosh-bharadwaj.sharedlist.tests
+        # Tests don't need their own ATS exceptions — they run inside the
+        # host app's bundle and inherit its Info.plist. We do still need
+        # an Info.plist for code signing the test bundle; let Xcode generate
+        # one rather than maintaining a near-empty file by hand.
+        GENERATE_INFOPLIST_FILE: "YES"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SharedList.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SharedList"
+
+schemes:
+  SharedList:
+    build:
+      targets:
+        SharedList: all
+        SharedListTests: [test]
+    test:
+      targets:
+        - SharedListTests
+      gatherCoverageData: true
+    run:
+      config: Debug
+    archive:
+      config: Release
