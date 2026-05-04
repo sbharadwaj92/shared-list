@@ -74,11 +74,23 @@ If you can't tick all boxes, the phase stays `IN PROGRESS`. Move unmet items to 
 Owner's standing preferences (also in their global `~/.claude/CLAUDE.md`):
 
 - **TypeScript**: never `any`; prefer `unknown`. Named exports, not default. Explicit error handling — no silent catches.
-- **Comments**: explain *why*, not *what*. Named constants over magic numbers.
+- **Comments**: explain *why*, not *what*. Named constants over magic numbers. **See "Learning-project comment policy" below — the *frequency* bar is loosened for this project.**
 - **Immutability**: prefer `const`, `readonly`.
 - **No `console.log`** in committed code. Never commit `.env` or secrets.
 - **Tests**: unit tests co-located (`Foo.test.ts` next to `Foo.ts`); E2E in `e2e/`. Descriptive test names. Coverage on business logic, not 100% chase.
 - **Communication style**: detailed reasoning, trade-offs, alternatives before implementing. Walk through investigation steps when debugging. Skip filler.
+
+### Learning-project comment policy
+
+This project intentionally loosens the standard "default to no comments" rule. The user is broadening into backend / native mobile / DevOps and the **PR review is the primary learning moment** — missed *why*-comments are missed learning opportunities.
+
+Apply across **all three platforms** (TypeScript backend, Swift iOS, Kotlin Android):
+
+- **The bar**: "would a learner of this stack be surprised here?", not the usual "would a senior engineer be surprised?". When the answer is yes, leave a short comment (1–3 lines, prose, no jargon dumps).
+- **What deserves a comment**: framework-idiomatic patterns (Hono `app.fetch` testability, Swift `@MainActor` placement, Kotlin `StateFlow.update` atomicity), security/correctness rationales (single-flight refresh, sha256 of refresh tokens at rest, idempotent POST via UUID v7), library quirks, chicken-and-egg ordering, behaviors that look wrong but aren't (soft-delete reads via repo helpers, LWW conflict resolution).
+- **What's still off-limits**: comments restating *what* the code does (`// increment counter`), change-narration (`// added in Phase 2`), per-function docstrings, comments explaining well-named identifiers. The *kind* of comment is unchanged — only the *frequency* bar moves.
+
+This rule applies retroactively too: when editing existing code, take the chance to add a why-comment if the surrounding logic would surprise a learner.
 
 Stack-specific (see `PLAN.md` for the full set):
 
