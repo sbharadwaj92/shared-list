@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 5 DONE — ready to begin Phase 6 (Android auth)
-**Next action**: create Android Studio project (`SharedList`, `applicationId` `in.santosh_bharadwaj.sharedlist`, minSdk 35, Kotlin 2.x, Compose), Gradle Kotlin DSL + version catalogs, Detekt + explicit API mode, custom `EncryptedSharedPreferences` wrapper, `TokenStore` mirroring iOS, Ktor `ApiClient` with auth header + 401 single-flight refresh interceptor, `AppContainer` via `CompositionLocal`, root composable + login flow with `StateFlow<UiState>`, JUnit unit tests, Android GitHub Actions workflow at end of phase
+**Phase**: Phase 6 IN PROGRESS (started 2026-05-05) — Android auth
+**Next action**: hand-write Gradle scaffolding (settings/build/version-catalog), generate Gradle wrapper, then port iOS `KeychainStore` → `SecureStorage` (EncryptedSharedPreferences), `TokenStore` → StateFlow, `APIClient` → Ktor with single-flight 401 refresh, `AuthService`, `AppContainer` via CompositionLocal, root composable + LoginFlow with `StateFlow<UiState>`, JUnit unit tests mirroring the 18 iOS tests, then Android GitHub Actions workflow (unit tests only — emulator deferred to local per PLAN.md L308)
 **Blockers**: none
 
 ---
@@ -81,7 +81,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] iOS CI green on real build (PR #6 — `xcodebuild test` 3m10s on macos-15, `lint + typecheck + test` 43s on ubuntu-latest)
 - [x] `docs/learning/phase-05.md` written
 
-#### Phase 6 — Android auth — NOT STARTED
+#### Phase 6 — Android auth — IN PROGRESS (started 2026-05-05)
 - [ ] Android Studio project (`SharedList`, minSdk 35, Kotlin 2.x, Compose)
 - [ ] Gradle Kotlin DSL + version catalogs
 - [ ] Detekt + explicit API mode
