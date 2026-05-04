@@ -31,7 +31,7 @@ jobs:
       run:
         working-directory: ios
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The `xcodes` GitHub Action (or `sudo xcode-select`) lets us pin to a
       # specific Xcode version. We ask for the latest 26.x available on the
