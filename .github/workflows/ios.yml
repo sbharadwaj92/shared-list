@@ -1,0 +1,93 @@
+name: ios
+
+# Mirror the backend workflow's path-filtering. Editing project docs or the
+# Android folder shouldn't burn an macOS-runner minute (which is also more
+# expensive than Ubuntu).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: xcodebuild test
+    # macOS runners are required to build iOS — Linux can't host an iOS SDK.
+    # `macos-15` ships with a recent Xcode that supports our deployment target;
+    # if we ever need to bump it, here's the place. The ARM-based runner is
+    # significantly faster than the Intel `macos-13`, so we use macos-15.
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      # The `xcodes` GitHub Action (or `sudo xcode-select`) lets us pin to a
+      # specific Xcode version. We ask for the latest 26.x available on the
+      # runner — pinning to a specific patch breaks every time GitHub rolls
+      # the image. The `xcodebuild -version` step below records what was
+      # actually used, for forensic clarity if a future build breaks.
+      - name: Select Xcode
+        run: |
+          # List available Xcode installs and pick the highest 26.x.
+          # The runner image preinstalls multiple side-by-side; xcode-select
+          # changes which one `xcodebuild` resolves to.
+          ls /Applications | grep -E '^Xcode_26' | sort -V | tail -1 | xargs -I {} sudo xcode-select -s "/Applications/{}/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        # XcodeGen is small (a single Swift binary). Brew-installing on every
+        # CI run is acceptable; the alternative (caching) is more configuration
+        # for a few seconds saved.
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Boot a simulator before the test step. `xcodebuild test` will boot one
+      # automatically if needed, but explicitly booting first gives clearer
+      # logs when something goes wrong (clear separation of "simulator failed
+      # to boot" vs. "tests failed to run").
+      - name: Boot iPhone simulator
+        run: |
+          xcrun simctl list devices available
+          # Pick the first available "iPhone 17 Pro Max" or a compatible flagship
+          # to mirror the local target. Falls back to any iPhone-class device.
+          DEVICE_ID=$(xcrun simctl list devices available -j | \
+            jq -r '[.devices[] | .[] | select(.name | test("iPhone.*Pro Max"))] | .[0].udid')
+          if [ -z "$DEVICE_ID" ] || [ "$DEVICE_ID" = "null" ]; then
+            DEVICE_ID=$(xcrun simctl list devices available -j | \
+              jq -r '[.devices[] | .[] | select(.name | startswith("iPhone"))] | .[0].udid')
+          fi
+          echo "Using simulator $DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" || true
+          echo "DEVICE_ID=$DEVICE_ID" >> $GITHUB_ENV
+
+      - name: Run unit tests
+        # `-resultBundlePath` produces a portable bundle we could upload as an
+        # artifact later; for now we just rely on the inline log.
+        # `-destination platform=iOS Simulator,id=…` targets the booted device
+        # by UDID, which is more deterministic than name+OS matching when CI
+        # runs on different image versions.
+        run: |
+          xcodebuild \
+            -project SharedList.xcodeproj \
+            -scheme SharedList \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            test \
+            | xcbeautify
+        # `xcbeautify` (preinstalled on the runner) compresses xcodebuild's
+        # 10x-too-noisy output into a readable summary while keeping failures
+        # verbose. If a CI step times out at 30 min, look there first — likely
+        # a stuck simulator boot.
