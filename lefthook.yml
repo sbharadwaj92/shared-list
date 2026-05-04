@@ -5,19 +5,40 @@
 # so we catch type errors before CI.
 #
 # All commands assume the backend workspace is installed (`bun install` at repo root).
+#
+# Why hooks at all: catching a formatting error in a pre-commit hook costs ~1s;
+# catching the same error in CI costs ~30s of waiting plus the cognitive cost
+# of context-switching back. Hooks are a latency optimization for the developer
+# feedback loop — CI is still the *gate*, hooks just shorten the feedback time.
+#
+# Why `parallel: true`: independent commands run concurrently. Biome and the
+# test suite don't share state, so there's no reason to serialize them.
 
 pre-commit:
   parallel: true
   commands:
     biome:
+      # `glob` filters the files lefthook even considers — keeps the hook fast
+      # by skipping irrelevant changes (e.g. editing only PLAN.md doesn't trigger
+      # Biome). `--no-errors-on-unmatched` prevents Biome from failing if the
+      # staged-files filter narrows to zero matches after our glob runs.
       glob: 'backend/**/*.{ts,tsx,js,jsx,json}'
       run: bunx --bun biome check --write --no-errors-on-unmatched {staged_files}
+      # `stage_fixed: true` re-stages files Biome auto-fixed. Without this, the
+      # commit would land *unfixed* code and the working tree would have a dirty
+      # diff after committing — confusing and easy to miss.
       stage_fixed: true
     backend-test:
       glob: 'backend/**/*.ts'
+      # `root: backend/` runs the command from the backend workspace dir so
+      # `bun test` resolves backend's package.json scripts and tsconfig.
       root: backend/
       run: bun test
 
+# Why typecheck on pre-push (not pre-commit): tsc is slower (~few seconds) and
+# it's whole-project, not staged-files-only. Running it on every commit would
+# slow the inner commit loop. Pre-push is the right boundary — if the push
+# would fail CI's typecheck, fail it locally first.
 pre-push:
   parallel: true
   commands:
