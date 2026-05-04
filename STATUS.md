@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-04
-**Phase**: Phase 1 DONE — ready to begin Phase 2 (backend skeleton)
-**Next action**: scaffold `backend/` with Bun + Hono + TypeScript, `docker-compose.yml` for Postgres 17 + Mailpit, Caddyfile, typed Zod-validated config, Pino + request-ID middleware, `/health` endpoint, Drizzle Kit, Biome, real lefthook hooks, backend CI workflow
+**Phase**: Phase 2 DONE — ready to begin Phase 3 (backend schema + migrations)
+**Next action**: design Drizzle schema for `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invites`, `refresh_tokens`; UUID v7 PKs, `updated_at` triggers, `deleted_at` columns, FK + `updated_at` indexes; generate first migration and apply; `activeLists()` / `activeItems()` repo helpers with Testcontainers-backed unit tests
 **Blockers**: none
 
 ---
@@ -31,17 +31,17 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] Caddy + mkcert installed; local CA in macOS trust store
 - [x] `docs/learning/phase-01.md` written per learning protocol
 
-#### Phase 2 — Backend skeleton — NOT STARTED
-- [ ] `backend/` with Bun + Hono + TypeScript
-- [ ] `docker-compose.yml` running Postgres 17 + Mailpit
-- [ ] Typed config module (Zod-validated env)
-- [ ] Pino logger setup with request-ID middleware
-- [ ] `/health` endpoint
-- [ ] Drizzle Kit configured
-- [ ] Biome + Lefthook hooks running
-- [ ] `bun run dev` returns `{ok: true}` on `https://Santoshs-MacBook-Pro-48.local/health` over TLS
-- [ ] backend CI workflow added under `.github/workflows/backend.yml`
-- [ ] `docs/learning/phase-02.md` written
+#### Phase 2 — Backend skeleton — DONE 2026-05-04
+- [x] `backend/` with Bun + Hono + TypeScript
+- [x] `docker-compose.yml` running Postgres 17 + Mailpit
+- [x] Typed config module (Zod-validated env)
+- [x] Pino logger setup with request-ID middleware
+- [x] `/health` endpoint
+- [x] Drizzle Kit configured
+- [x] Biome + Lefthook hooks running
+- [x] `bun run dev` returns `{ok: true}` on `https://Santoshs-MacBook-Pro-48.local/health` over TLS
+- [x] backend CI workflow added under `.github/workflows/backend.yml`
+- [x] `docs/learning/phase-02.md` written
 
 #### Phase 3 — Backend schema + migrations — NOT STARTED
 - [ ] Drizzle schema for `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invites`, `refresh_tokens`
@@ -239,6 +239,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 
 ```
 2026-05-04 — Phase 1 complete: monorepo scaffolded, pushed to github.com/sbharadwaj92/shared-list, mkcert + Caddy + lefthook ready, learning doc written.
+2026-05-04 — Phase 2 complete: backend skeleton (Bun + Hono + Pino + Zod config + Drizzle + Biome), docker-compose (Postgres 17 + Mailpit), Caddy under brew services with mkcert TLS, /health works end-to-end, backend CI workflow + real lefthook hooks live.
 ```
 
 ---
