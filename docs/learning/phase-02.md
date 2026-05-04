@@ -37,3 +37,41 @@ Phase 3 will add the database schema and start using `db.ts`. Phases 4+ will gra
 **What I changed**: nothing in code. Updated the comment in `config.ts` to make the chicken-and-egg explicit so the next person reading this file doesn't try to "fix" the `console.error`.
 
 **Skipped**: the PLAN-suggested "kill Postgres mid-request" experiment. Phase 2 has no Postgres-touching code path — Phase 3 introduces the first query, and that's the right phase for the kill-the-DB experiment. Logged here so it isn't lost.
+
+---
+
+## Appendix — JSON config rationale
+
+JSON has no comment syntax, so the *why* behind individual config values lives here.
+
+### `tsconfig.json`
+
+- `target: ESNext`, `module: ESNext`, `moduleResolution: bundler`, `lib: [ESNext]`: Bun runs modern JS natively — no need to transpile down to ES2019 the way Node-CJS-with-tsc setups do. Bundler-style resolution lets us write `import { x } from './y.ts'` with the explicit `.ts` extension that Bun expects.
+- `types: ["bun"]`: pulls in `Bun.serve`, `Bun.password`, etc. Without this, `Bun.serve` is `any` and we lose type checking on the server entry point.
+- `strict: true` is the umbrella that turns on `strictNullChecks`, `noImplicitAny`, and several siblings. Required by the project's "never `any`" rule.
+- `noUncheckedIndexedAccess: true`: makes `array[i]` typed as `T | undefined`, not `T`. Catches bugs where you assume an index exists. Costs a few `if (item)` checks but eliminates a class of runtime crashes.
+- `noImplicitOverride: true`: requires the `override` keyword when a subclass method overrides a parent's. Prevents accidentally shadowing a method when the parent renames its method out from under you.
+- `noFallthroughCasesInSwitch: true`: a `switch` case without `break` or `return` is an error. Rare bug source, almost free to enable.
+- `exactOptionalPropertyTypes: true`: distinguishes `{x?: T}` (might be missing) from `{x: T | undefined}` (might be explicitly undefined). The Pino logger options needed this care — it's how the original `transport: undefined` setup was caught at compile time.
+- `verbatimModuleSyntax: true`: forces `import type {...}` for type-only imports. Clearer for readers and avoids the bundler stripping a value-import that turns out to be type-only.
+- `isolatedModules: true`: requires every file to be independently transpilable. Bun and modern bundlers assume this; turning it on catches cross-file type-only re-exports that would break under those tools.
+- `allowImportingTsExtensions: true`: lets us write `from './foo.ts'` instead of `from './foo'`. Bun reads the `.ts` extension at runtime; matching it in source removes a guessing game for editors and IDEs.
+- `noEmit: true`: tsc only typechecks; Bun does the actual execution. Without `noEmit`, tsc would emit `.js` files we don't want.
+- `paths: {"@/*": ["src/*"]}`: optional aliasing for cleaner deep imports. Not used yet but prepared for when nested feature folders make `../../../` ugly.
+
+### `biome.json`
+
+- `vcs.useIgnoreFile: true`: Biome respects `.gitignore`, so it doesn't lint `node_modules` or generated `drizzle/` migrations.
+- `lineWidth: 100`: a project-wide setting for prose-style line wrapping. Matches modern team norms (80 is too tight for TS generic types, 120 makes long-form comments hard to scan).
+- `organizeImports: enabled`: auto-sorts imports on save/format. Eliminates a class of merge conflicts and bikeshedding.
+- `noDefaultExport: error`: matches the project rule "named exports, not default." The override for `drizzle.config.ts` exists because Drizzle Kit *requires* a default export — that's the legitimate exception.
+- `noConsole: { allow: ["error", "warn"] }`: bans `console.log` (use the structured logger) but allows `console.error`/`console.warn` for places where the logger isn't yet constructed (`config.ts` boot-failure path) or where a critical-warning predates logger setup.
+- `noExplicitAny: error`: matches "never `any`" — TypeScript should always know the type, even if `unknown` is the answer.
+- The `**/*.test.ts` override turns off `noConsole` because `console.log` in a failing test is sometimes the fastest way to debug. Production code has no such excuse.
+
+### `package.json` scripts
+
+- `dev: bun --watch src/index.ts`: `--watch` restarts the server on file change. Bun's watcher is process-level, so it picks up `.env` changes too.
+- `start: bun src/index.ts`: production-style invocation, no watcher. Used by future Docker images.
+- `typecheck: tsc --noEmit`: separate from `dev` because typechecking is slow (~1-2s on this codebase) and `bun --watch` doesn't need it on every restart.
+- `db:generate / db:migrate / db:studio`: thin wrappers around Drizzle Kit CLI. Documented as scripts so the right one is just one keystroke away.

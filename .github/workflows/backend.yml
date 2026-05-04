@@ -1,5 +1,10 @@
 name: backend
 
+# Path-filtered triggers: this workflow only runs when files that actually
+# affect backend correctness change. Editing PLAN.md, STATUS.md, or CLAUDE.md
+# shouldn't burn a CI minute. We include `package.json` and `bun.lock` because
+# dependency changes can break the backend even with no /backend/ source diff.
+# `lefthook.yml` is included because hook changes can mask local-only failures.
 on:
   push:
     branches: [main]
@@ -17,6 +22,10 @@ on:
       - 'bun.lock'
       - 'lefthook.yml'
 
+# Cancel an in-flight CI run when a new commit lands on the same ref. Without
+# this, pushing two commits in quick succession runs CI on both — the older
+# run is wasted (its result no longer matters) but still consumes a runner.
+# `cancel-in-progress: true` keeps the latest commit as the only relevant run.
 concurrency:
   group: backend-${{ github.ref }}
   cancel-in-progress: true
@@ -25,6 +34,8 @@ jobs:
   check:
     name: lint + typecheck + test
     runs-on: ubuntu-latest
+    # 10-minute hard ceiling. The actual run is ~15s; this catches a hung job
+    # (network stall, infinite loop in a test) before it eats GitHub minutes.
     timeout-minutes: 10
     defaults:
       run:
@@ -43,9 +54,18 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
+        # `working-directory: .` overrides the job-level `backend/` because the
+        # lockfile lives at the workspace root, not inside backend/.
         working-directory: .
+        # `--frozen-lockfile` makes the install fail if `bun.lock` is out of sync
+        # with `package.json`. This catches "I forgot to commit the lockfile"
+        # bugs at CI time, not when a teammate's install resolves to different
+        # versions than mine.
         run: bun install --frozen-lockfile
 
+      # `biome ci` is a stricter mode of `biome check`: it disables auto-fix
+      # (so CI never silently rewrites code) and exits non-zero on warnings, not
+      # just errors. Designed for exactly this gate-keeping role.
       - name: Biome lint + format check
         run: bunx --bun biome ci .
 
