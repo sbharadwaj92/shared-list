@@ -8,9 +8,9 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 
 ## Right now
 
-**Last updated**: 2026-05-04
-**Phase**: Phase 4 DONE — ready to begin Phase 5 (iOS auth)
-**Next action**: create Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency), folder structure, custom `KeychainStore` wrapper, `TokenStore`, `APIClient` with auth header injection + 401 → single-flight refresh → retry, `AppContainer` (manual DI), `RootView` + `LoginFlowView`, Swift Testing unit tests + previews, iOS GitHub Actions workflow at end of phase
+**Last updated**: 2026-05-05
+**Phase**: Phase 5 IN PROGRESS (started 2026-05-04) — code complete, signup + login verified on iPhone 15 Pro Max; awaiting sign-out + force-quit/relaunch verification + CI green
+**Next action**: on physical iPhone 15 Pro Max, hit "Sign Out" then log back in (verifies logout + relogin), then force-quit and relaunch (verifies refresh-token-survives-restart); push branch, open PR, wait for `ios` and `backend` CI to go green
 **Blockers**: none
 
 ---
@@ -66,20 +66,20 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] Reuse-detection verified: used refresh token invalidates user's tokens
 - [x] `docs/learning/phase-04.md` written
 
-#### Phase 5 — iOS auth — NOT STARTED
-- [ ] Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency)
-- [ ] Folder structure (App/Features/Core/Resources/)
-- [ ] Custom `KeychainStore` wrapper
-- [ ] `TokenStore` for access/refresh storage and rotation
-- [ ] `APIClient` with auth header injection + 401 → single-flight refresh → retry
-- [ ] `AppContainer` with `apiClient`, `tokenStore`, `auth`
-- [ ] `RootView` + `LoginFlowView` (signup, login, logout)
-- [ ] Swift Testing unit tests; previews for every view
-- [ ] Sign up + log in + log out works on Simulator and physical iPhone
-- [ ] Refresh token survives app restart
-- [ ] iOS GitHub Actions workflow added
-- [ ] iOS CI green on real build
-- [ ] `docs/learning/phase-05.md` written
+#### Phase 5 — iOS auth — IN PROGRESS (started 2026-05-04)
+- [x] Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency) — generated via XcodeGen from `ios/project.yml`; `SharedList.xcodeproj` is gitignored
+- [x] Folder structure (App/Features/Core/Resources/)
+- [x] Custom `KeychainStore` wrapper
+- [x] `TokenStore` for access/refresh storage and rotation
+- [x] `APIClient` with auth header injection + 401 → single-flight refresh → retry
+- [x] `AppContainer` with `apiClient`, `tokenStore`, `auth`
+- [x] `RootView` + `LoginFlowView` (signup, login, logout)
+- [x] Swift Testing unit tests; previews for every view (18 tests across 4 suites passing locally on iPhone 17 Pro Max sim)
+- [ ] Sign up + log in + log out works on Simulator and physical iPhone (signup + login verified on iPhone 15 Pro Max 2026-05-04 against the local backend; logout + relogin still TODO)
+- [ ] Refresh token survives app restart (manual verification: log in, force-quit, relaunch — should land on post-auth screen)
+- [x] iOS GitHub Actions workflow added (`.github/workflows/ios.yml`)
+- [ ] iOS CI green on real build (push branch + open PR to verify on macos-15 runner)
+- [x] `docs/learning/phase-05.md` written
 
 #### Phase 6 — Android auth — NOT STARTED
 - [ ] Android Studio project (`SharedList`, minSdk 35, Kotlin 2.x, Compose)
@@ -242,6 +242,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-04 — Phase 2 complete: backend skeleton (Bun + Hono + Pino + Zod config + Drizzle + Biome), docker-compose (Postgres 17 + Mailpit), Caddy under brew services with mkcert TLS, /health works end-to-end, backend CI workflow + real lefthook hooks live.
 2026-05-04 — Phase 3 complete: 7-table Drizzle schema (UUID v7 PKs, updated_at triggers via hand-written 0001 migration, soft-delete on lists/items/list_members), repo helpers (activeLists/activeItems/activeMembership), Testcontainers-backed integration tests (14 passing) covering soft-delete, trigger, FK cascade, and case-insensitive email uniqueness.
 2026-05-04 — Phase 4 complete: backend auth (signup/login/refresh/logout/me) with argon2id, jose HS256 JWTs, refresh-token rotation + reuse detection (sha256 hashes, revoke-all on replay), requireAuth middleware, @hono/zod-openapi + Swagger UI at /swagger-ui, hono-rate-limiter, 45 tests passing (10 service + 10 integration + 1 rate-limit + 4 password + 6 token + others), zod bumped to v4 for compat. Break-it: replayed refresh-token over real TLS, confirmed revoke-all on multi-device.
+2026-05-04 — Phase 5 code complete: ios/ scaffolded via XcodeGen (project.yml, .gitignore, README), custom KeychainStore over Security.framework + InMemoryKeychainStore for tests, @MainActor @Observable TokenStore, APIClient with single-flight refresh via RefreshCoordinator actor, AppContainer manual DI, RootView + LoginFlowView with previews, 18 Swift Testing tests passing (5 APIClient incl. concurrent-refresh-collapses-to-one, 5 KeychainStore real, 3 InMemory, 5 TokenStore), .github/workflows/ios.yml on macos-15, docs/learning/phase-05.md written. Backend fix landed in same PR: Zod validation errors now use the standard {error:{code,message,requestId}} envelope via OpenAPIHono defaultHook (validation-hook.ts + 4 unit tests + strengthened integration tests, 49/49 backend tests pass). Verified on physical iPhone 15 Pro Max: signup → 201, login → 200, error envelope renders cleanly. Logout + force-quit/relaunch + CI green still TODO.
 ```
 
 ---
