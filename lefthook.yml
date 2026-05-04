@@ -1,0 +1,13 @@
+# Lefthook git hook config.
+#
+# Phase 1: file exists so Phase 2 can attach real hooks without touching git config again.
+# Real Biome + bun-test hooks land in Phase 2 once backend code exists.
+# Until then, these stages are intentionally empty — running `lefthook install` is still safe.
+
+pre-commit:
+  parallel: true
+  commands: {}
+
+pre-push:
+  parallel: true
+  commands: {}

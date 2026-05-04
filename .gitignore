@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+bun.lockb
+.pnp
+.pnp.js
+
+# Build artifacts
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.pem
+service-account*.json
+google-services.json
+GoogleService-Info.plist
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# iOS / Xcode
+ios/build/
+ios/DerivedData/
+ios/Pods/
+ios/.build/
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.cxx/
+.gradle/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Testcontainers leftovers
+.testcontainers/
