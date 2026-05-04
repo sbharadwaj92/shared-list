@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 5 IN PROGRESS (started 2026-05-04) — all Done criteria met; PR #6 green, awaiting merge
-**Next action**: merge PR #6 (https://github.com/sbharadwaj92/shared-list/pull/6); once merged, flip Phase 5 → DONE in STATUS, then start Phase 6 (Android auth, mirroring Phase 5 against `EncryptedSharedPreferences` + Ktor + Compose)
+**Phase**: Phase 5 DONE — ready to begin Phase 6 (Android auth)
+**Next action**: create Android Studio project (`SharedList`, `applicationId` `in.santosh_bharadwaj.sharedlist`, minSdk 35, Kotlin 2.x, Compose), Gradle Kotlin DSL + version catalogs, Detekt + explicit API mode, custom `EncryptedSharedPreferences` wrapper, `TokenStore` mirroring iOS, Ktor `ApiClient` with auth header + 401 single-flight refresh interceptor, `AppContainer` via `CompositionLocal`, root composable + login flow with `StateFlow<UiState>`, JUnit unit tests, Android GitHub Actions workflow at end of phase
 **Blockers**: none
 
 ---
@@ -66,7 +66,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] Reuse-detection verified: used refresh token invalidates user's tokens
 - [x] `docs/learning/phase-04.md` written
 
-#### Phase 5 — iOS auth — IN PROGRESS (started 2026-05-04)
+#### Phase 5 — iOS auth — DONE 2026-05-05
 - [x] Xcode project (`SharedList`, iOS 26 min, Swift 6 strict concurrency) — generated via XcodeGen from `ios/project.yml`; `SharedList.xcodeproj` is gitignored
 - [x] Folder structure (App/Features/Core/Resources/)
 - [x] Custom `KeychainStore` wrapper
@@ -244,6 +244,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-04 — Phase 4 complete: backend auth (signup/login/refresh/logout/me) with argon2id, jose HS256 JWTs, refresh-token rotation + reuse detection (sha256 hashes, revoke-all on replay), requireAuth middleware, @hono/zod-openapi + Swagger UI at /swagger-ui, hono-rate-limiter, 45 tests passing (10 service + 10 integration + 1 rate-limit + 4 password + 6 token + others), zod bumped to v4 for compat. Break-it: replayed refresh-token over real TLS, confirmed revoke-all on multi-device.
 2026-05-04 — Phase 5 code complete: ios/ scaffolded via XcodeGen (project.yml, .gitignore, README), custom KeychainStore over Security.framework + InMemoryKeychainStore for tests, @MainActor @Observable TokenStore, APIClient with single-flight refresh via RefreshCoordinator actor, AppContainer manual DI, RootView + LoginFlowView with previews, 18 Swift Testing tests passing (5 APIClient incl. concurrent-refresh-collapses-to-one, 5 KeychainStore real, 3 InMemory, 5 TokenStore), .github/workflows/ios.yml on macos-15, docs/learning/phase-05.md written. Backend fix landed in same PR: Zod validation errors now use the standard {error:{code,message,requestId}} envelope via OpenAPIHono defaultHook (validation-hook.ts + 4 unit tests + strengthened integration tests, 49/49 backend tests pass).
 2026-05-05 — Phase 5 verified end-to-end on physical iPhone 15 Pro Max against local backend: signup (201) → post-auth screen, sign out → login screen, log in (200) → post-auth screen, force-quit + relaunch → post-auth screen (refresh-token survives restart). PR #6 opened with three commits (iOS scaffold, backend Zod-envelope fix, login-validator user-enumeration fix); all CI green (backend 43s, iOS 3m10s). Awaiting merge.
+2026-05-05 — Phase 5 DONE: PR #6 rebase-merged (commits cf0701d…1beabcd on main). Final scope: 7 commits — iOS scaffold, two backend fixes (validation envelope + login user-enumeration leak), STATUS bookkeeping, actions/checkout v4→v5 hygiene. 51/51 backend tests, 18/18 iOS tests, both CI workflows green on real GitHub runners.
 ```
 
 ---
