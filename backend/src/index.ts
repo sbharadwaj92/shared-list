@@ -1,8 +1,9 @@
 import { buildApp } from './app.ts';
 import { config } from './infra/config.ts';
+import { db } from './infra/db.ts';
 import { logger } from './infra/logger.ts';
 
-const app = buildApp();
+const app = buildApp(db);
 
 // Binding to 127.0.0.1 (loopback) instead of 0.0.0.0 is deliberate: the only
 // thing on the network that should reach Bun is Caddy on the same host. Caddy

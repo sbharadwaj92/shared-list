@@ -51,6 +51,10 @@ jobs:
       DATABASE_URL: postgres://placeholder:placeholder@localhost:5432/shared_list
       NODE_ENV: test
       LOG_LEVEL: warn
+      # Phase 4: config requires a JWT_SECRET >= 32 chars at module load. The
+      # value is irrelevant to tests — only its length matters for Zod's parse
+      # to accept it. Tests don't share token state across processes.
+      JWT_SECRET: ci-placeholder-jwt-secret-at-least-32-chars-long
     steps:
       - uses: actions/checkout@v4
 
