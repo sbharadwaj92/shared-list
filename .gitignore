@@ -42,6 +42,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code per-session state (lock files, scheduled-task metadata).
+# These contain session UUIDs and process info that are local to one
+# machine; never commit.
+.claude/
+
 # iOS / Xcode
 ios/build/
 ios/DerivedData/
