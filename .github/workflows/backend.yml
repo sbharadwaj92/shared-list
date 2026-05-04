@@ -56,7 +56,7 @@ jobs:
       # to accept it. Tests don't share token state across processes.
       JWT_SECRET: ci-placeholder-jwt-secret-at-least-32-chars-long
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
