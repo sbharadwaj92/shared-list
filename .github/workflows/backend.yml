@@ -1,0 +1,56 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'lefthook.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'lefthook.yml'
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint + typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Required by Zod-validated config at module load. CI doesn't reach the DB
+      # in Phase 2 — Phase 3 introduces real Postgres-backed integration tests.
+      DATABASE_URL: postgres://placeholder:placeholder@localhost:5432/shared_list
+      NODE_ENV: test
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Biome lint + format check
+        run: bunx --bun biome ci .
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
