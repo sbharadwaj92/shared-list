@@ -120,6 +120,59 @@ describe('auth integration (HTTP)', () => {
     expect(body.error.message).toContain('12');
   });
 
+  test('POST /auth/login with too-short password returns generic 401 (no validator leak)', async () => {
+    // Login deliberately does NOT enforce the signup password policy at the
+    // validator. If it did, an attacker probing /auth/login could learn the
+    // minimum-length policy from the validator's error message and narrow
+    // their brute-force search. All credential failures — non-existent
+    // user, wrong password, password below policy — collapse to the same
+    // generic 401 from the service layer. See LoginBody in schemas.ts.
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'nobody@example.com',
+        password: 'short',
+      }),
+    });
+    expect(res.status).toBe(401);
+
+    const body = (await res.json()) as {
+      error: { code: string; message: string; requestId: string };
+    };
+    // Critical: the message must NOT mention the length policy. We assert
+    // the absence specifically because that's the leak we're guarding
+    // against — a future change that re-tightens the validator would
+    // re-introduce '12 characters' here, and this test would fail.
+    expect(body.error.message).not.toContain('12');
+    expect(body.error.message).not.toContain('characters');
+    // The generic message comes from service.ts. We don't pin its exact
+    // wording (it can be tuned for UX) but it should signal a credential
+    // failure of some kind.
+    expect(body.error.message.toLowerCase()).toMatch(/invalid|incorrect|credential|email|password/);
+  });
+
+  test('POST /auth/login with empty password still returns 400 (the validator floor)', async () => {
+    // The relaxed login schema still rejects truly empty input — there's
+    // no sense waking up argon2id to verify "". This is the only validator
+    // failure login should emit, and the error message must remain
+    // generic enough that it doesn't reveal anything (it just says "body"
+    // because the field is empty, not "must be at least 12 characters").
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'x@y.z', password: '' }),
+    });
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      error: { code: string; message: string; requestId: string };
+    };
+    expect(body.error.code).toBe('validation_error');
+    // Same leak guard as the 401 case: no policy hints in the message.
+    expect(body.error.message).not.toContain('12');
+  });
+
   test('duplicate signup returns 409 with the central error envelope', async () => {
     await app.request('/auth/signup', {
       method: 'POST',

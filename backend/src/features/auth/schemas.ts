@@ -22,7 +22,11 @@ import { z } from '@hono/zod-openapi';
 // floor: long enough that a brute force is infeasible against argon2id, short
 // enough that no real user complains. We can tighten later (e.g. NIST 800-63B
 // composition rules) without a migration.
-const password = z
+//
+// Important: this strict policy applies ONLY to signup. Login uses a
+// minimal "non-empty" rule on purpose — see LoginBody below for the
+// rationale.
+const signupPassword = z
   .string()
   .min(12, 'password must be at least 12 characters')
   .max(256, 'password too long');
@@ -38,7 +42,7 @@ const displayName = z
 export const SignupBody = z
   .object({
     email,
-    password,
+    password: signupPassword,
     displayName,
   })
   .openapi('SignupBody', {
@@ -49,10 +53,33 @@ export const SignupBody = z
     },
   });
 
+// Login uses a deliberately-loose schema: any non-empty string for both
+// email and password. We do NOT enforce the 12-char password minimum here,
+// nor a strict email regex. Reason: validator-level rejections leak
+// information to a probing attacker. If `/auth/login` rejects "abc" with
+// `400 password: must be at least 12 characters`, the attacker learns
+// (a) the minimum length policy and (b) that valid passwords on this
+// system are at least 12 chars long — narrowing brute-force search space.
+//
+// All real authentication failures on /auth/login (no such user, wrong
+// password, anything below the policy floor) collapse to the SAME
+// generic `401 invalid email or password` response from service.ts.
+// The user can still recover (they know what they typed); an attacker
+// can't distinguish "this email doesn't exist" from "this email exists
+// but the password is wrong" from "this password is too short to even
+// attempt." This is the OWASP / NIST 800-63B baseline for credential
+// authentication endpoints.
+//
+// We DO still cap max lengths so a multi-megabyte body doesn't pass
+// through to argon2id and burn CPU verifying it. The failure-mode there
+// is "request body too large" before the validator runs (Hono caps body
+// size by default), and the .max() here is a defense-in-depth.
+const loginCredential = z.string().min(1).max(256);
+
 export const LoginBody = z
   .object({
-    email,
-    password,
+    email: loginCredential.max(254),
+    password: loginCredential,
   })
   .openapi('LoginBody', {
     example: { email: 'alice@example.com', password: 'correct horse battery staple' },
