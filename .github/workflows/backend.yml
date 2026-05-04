@@ -41,8 +41,13 @@ jobs:
       run:
         working-directory: backend
     env:
-      # Required by Zod-validated config at module load. CI doesn't reach the DB
-      # in Phase 2 — Phase 3 introduces real Postgres-backed integration tests.
+      # Required by Zod-validated config at module load. The placeholder value
+      # is never connected to — Phase 3+ tests stand up their own Postgres in a
+      # Docker container via Testcontainers and never touch this URL. The env
+      # var exists only so `import { config }` in test files doesn't fail at
+      # parse time. The Ubuntu runners ship with Docker pre-installed and a
+      # daemon at `/var/run/docker.sock`, so Testcontainers' default detection
+      # finds it without any DOCKER_HOST override.
       DATABASE_URL: postgres://placeholder:placeholder@localhost:5432/shared_list
       NODE_ENV: test
       LOG_LEVEL: warn
