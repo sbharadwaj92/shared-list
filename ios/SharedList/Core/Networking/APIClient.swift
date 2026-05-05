@@ -174,24 +174,44 @@ public final class APIClient: Sendable {
         request: URLRequest,
         requiresAuth: Bool
     ) async throws -> (Data, URLResponse) {
+        // Capture the access token used for this request so we can later
+        // detect "another coroutine rotated the token between my request
+        // build and my 401 response" without triggering a redundant
+        // refresh. This is the canonical compare-and-retry pattern (OkHttp
+        // Authenticator on Android does the same shape).
+        //
+        // The Android port surfaced this race under JUnit's deterministic
+        // scheduler: a leader coroutine could complete refresh + retry
+        // entirely before a follower coroutine finished its initial 401.
+        // The follower's 401 was caused by stale-of-pre-rotation token,
+        // not by genuinely invalid credentials — so it should retry
+        // without refreshing again. Matching the iOS code to that pattern
+        // hardens it against any future scheduler behavior, not just
+        // today's URLSession latency masking.
+        let accessTokenAtSend = requiresAuth ? request.value(forHTTPHeaderField: "Authorization") : nil
         let (data, response) = try await sendOnce(request: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.transport(message: "non-HTTP response")
         }
 
         if http.statusCode == 401 && requiresAuth {
-            // Try one refresh + retry. A second 401 means the refresh itself
-            // either failed or yielded a still-invalid access token; in
-            // either case, the user is logged out from this client's view.
-            let refreshed = try await runRefresh()
-            if !refreshed {
-                throw APIError.refreshFailed
+            let currentBearer = await currentAccessToken().map { "Bearer \($0)" }
+            let tokenChangedByAnotherCaller = accessTokenAtSend != nil
+                && currentBearer != nil
+                && currentBearer != accessTokenAtSend
+
+            if !tokenChangedByAnotherCaller {
+                // Token at send time matches current token → genuinely
+                // stale, coordinate a refresh. Single-flight collapses
+                // concurrent callers in the SAME burst onto one refresh.
+                let refreshed = try await runRefresh()
+                if !refreshed {
+                    throw APIError.refreshFailed
+                }
             }
 
-            // Rebuild the request with the new access token. We can't just
-            // mutate the old `Authorization` header — even though the token
-            // string is what changes — because the original request might
-            // have come from the caller without an auth header at all.
+            // Rebuild the request with whatever token is current now —
+            // either rotated by us, or already rotated by another caller.
             var retried = request
             if let token = await currentAccessToken() {
                 retried.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -303,74 +323,40 @@ public struct EmptyResponse: Codable, Sendable, Equatable {
 //   - Sendable check: the in-flight Task is itself Sendable, so storing it on
 //     an actor and handing references to other tasks is type-safe by construction.
 //
-// **Why we don't clear `inFlight` in a `defer` after the task finishes**: if a
-// leader runs the entire refresh + retry inline before a follower coroutine
-// even reaches `run(_:)` — which is what happens under a fast in-process test
-// scheduler or any deterministic dispatcher — the follower would see
-// `inFlight == nil` and start a SECOND refresh, defeating single-flight.
-// The Android port of this code surfaced exactly this bug under JUnit's test
-// dispatcher on Linux CI; the iOS code has the same theoretical bug but
-// `URLSession.data(for:)` does real I/O so the leader always suspends long
-// enough for followers to see the populated `inFlight`. Hardening this here
-// before Phase 7 (where the sync engine triggers real 401 bursts under
-// arbitrary scheduling) means the property holds under any future runtime
-// behavior, not just today's empirical timing.
-//
-// Replacement strategy: track an explicit `isFinished` alongside the Task.
-// Late followers from the same burst find a not-yet-finished Task and join
-// it. A brand new 401 (rare — would need a freshly-rotated token to
-// immediately yield another 401) sees the finished Task, recognizes it as
-// stale, and starts a fresh one. Swift's Task doesn't expose `isFinished`
-// directly, so we maintain it ourselves via an Entry struct.
+// We DO clear `inFlight` after completion. Earlier we kept the completed
+// Task around in an attempt to make late-arriving followers (those that
+// reached `run(_:)` after the leader had already finished) join the cached
+// result instead of starting a fresh refresh. But a completed Task with
+// result `true` returned to such a follower means the follower then
+// retries with the rotated access token — which is exactly what
+// performWithRefresh now does directly via the compare-and-retry guard
+// above the call to `runRefresh()`. The guard means `runRefresh()` is
+// only invoked when the access token is genuinely stale (no other caller
+// has rotated yet), so the in-flight Task is the right thing to share
+// among genuinely concurrent callers, and clearing it on completion lets
+// a future stale-token burst start fresh — correct.
 private actor RefreshCoordinator {
-    private struct Entry {
-        let task: Task<Bool, any Error>
-        // Mutable on the actor's isolation domain only — set to true after
-        // the leader's `task.value` returns.
-        var isFinished: Bool
-    }
-
-    private var inFlight: Entry?
+    private var inFlight: Task<Bool, any Error>?
 
     func run(_ work: @Sendable @escaping () async throws -> Bool) async throws -> Bool {
-        // Phase 1: decide leader vs follower while holding the actor's
-        // isolation. This is a pure synchronous read/write — no `await`,
-        // so two concurrent calls can't interleave here.
-        if let existing = inFlight, !existing.isFinished {
-            // Phase 2 (follower): release isolation by `await`ing the
-            // existing Task. Multiple followers on the same Task get the
-            // same Bool / same thrown error for free.
-            return try await existing.task.value
+        if let existing = inFlight {
+            // A refresh is currently running. Awaiting the same Task means
+            // we get the same Bool / thrown error for free.
+            return try await existing.value
         }
-
-        // Either no Task ever ran (`inFlight == nil`) or the previous one
-        // already finished (stale). Start fresh.
         let task = Task<Bool, any Error> {
             try await work()
         }
-        inFlight = Entry(task: task, isFinished: false)
-
-        // Phase 2 (leader): do the actual work. Suspending on `task.value`
-        // releases actor isolation; followers can call `run(_:)` and see
-        // the populated, not-yet-finished entry. When the work completes
-        // (or throws), we re-acquire isolation, mark the entry finished —
-        // we deliberately do NOT clear it so a follower that arrived right
-        // before `task.value` returned still sees a populated entry to
-        // await. The next NEW 401 burst will replace the entry above.
-        do {
-            let result = try await task.value
-            markFinished()
-            return result
-        } catch {
-            markFinished()
-            throw error
+        inFlight = task
+        defer {
+            // Clear the reference AFTER the task finishes so the next
+            // genuinely-stale 401 burst can start a fresh refresh. Safe
+            // because performWithRefresh's compare-and-retry guard means
+            // a "follower whose 401 was caused by another caller's
+            // rotation" never reaches us in the first place.
+            inFlight = nil
         }
-    }
-
-    private func markFinished() {
-        guard var entry = inFlight else { return }
-        entry.isFinished = true
-        inFlight = entry
+        return try await task.value
     }
 }
 
