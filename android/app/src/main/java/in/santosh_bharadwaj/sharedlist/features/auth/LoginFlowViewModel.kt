@@ -96,15 +96,25 @@ public class LoginFlowViewModel(
                     )
                 }
             }
-            _state.update {
-                it.copy(
-                    isSubmitting = false,
-                    errorMessage = result.exceptionOrNull()?.let(::displayMessage),
-                )
-            }
             // On success, TokenStore now holds non-null tokens; RootScreen
             // observes that and switches to the post-auth surface
-            // automatically. No navigation call needed.
+            // automatically. We also wipe the form state — the ViewModel
+            // outlives the LoginFlowScreen composition (it's hosted by
+            // MainActivity's ViewModelStore), so without an explicit reset
+            // a sign-out followed by re-display would show the previous
+            // session's email/password still typed in. That's a user
+            // privacy issue (especially for the password field, which the
+            // OS may snapshot for the recents-screen blur).
+            if (result.isSuccess) {
+                _state.value = LoginUiState()
+            } else {
+                _state.update {
+                    it.copy(
+                        isSubmitting = false,
+                        errorMessage = result.exceptionOrNull()?.let(::displayMessage),
+                    )
+                }
+            }
         }
     }
 
