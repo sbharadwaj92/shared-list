@@ -188,11 +188,14 @@ struct CrossPlatformConvergenceTests {
 
     @Test func scenarioC_observerEditsThenDrains() async throws {
         // Same shape as the creator side — different name, same flow.
-        // The harness runs both processes concurrently (or near-
-        // concurrently); whichever lands first wins, the other gets
-        // 409 → reconcile → retry-once and ends up with the winner's
-        // name. The harness's final assertion compares the two
-        // FINAL_NAME values — they must match.
+        // Both processes run sequentially (act first, then this one);
+        // because both started from the same seeded list and pre-staged
+        // their If-Match against the same `updatedAt`, this one will
+        // hit a 409 → reconcile → retry-once cycle. Final state on the
+        // server is "scenario-c-from-B-..." (this process's value).
+        // The harness's `scenarioC_reconcileOnly` step runs on the act
+        // platform AFTER this method to confirm both end up with the
+        // same name post-final-reconcile.
         guard let env = try await makeEnvironmentOrSkip(expectedRole: "B") else { return }
         let listId = try requireEnv("CROSS_PLATFORM_LIST_ID")
 
@@ -201,6 +204,23 @@ struct CrossPlatformConvergenceTests {
         let nameFromB = "scenario-c-from-B-\(env.runId)"
         try env.mutator.renameList(id: listId, newName: nameFromB)
         await env.drainer.tick()
+
+        try await env.syncEngine.reconcile()
+        let lists = try env.context.fetch(FetchDescriptor<ListModel>())
+        let observed = lists.first { $0.id == listId }
+        printResult(key: "LIST_ID", value: listId)
+        printResult(key: "FINAL_NAME", value: observed?.name ?? "")
+    }
+
+    /// Reconcile-only step the harness invokes on the act platform
+    /// AFTER the observer ran its rename. Refreshes the local row to
+    /// the latest serverside name without performing any new mutation.
+    /// The harness asserts FINAL_NAME from this run matches the
+    /// observer's FINAL_NAME — that's the cross-platform convergence
+    /// invariant (both devices end up with the same row).
+    @Test func scenarioC_reconcileOnly() async throws {
+        guard let env = try await makeEnvironmentOrSkip(expectedRole: anyRole()) else { return }
+        let listId = try requireEnv("CROSS_PLATFORM_LIST_ID")
 
         try await env.syncEngine.reconcile()
         let lists = try env.context.fetch(FetchDescriptor<ListModel>())
@@ -243,15 +263,21 @@ struct CrossPlatformConvergenceTests {
 
         try await env.syncEngine.reconcile()
 
-        // The deletion happened on A's side — we should NOT see an active
-        // local row for the item after our reconcile. The read-side
-        // reconciler's `deleteLocalItem` path runs because the wire DTO's
-        // `deletedAt` is non-nil (tombstone), and our local store gets a
-        // matching `deletedAt` written.
+        // The deletion happened on A's side. The read-side reconciler's
+        // contract for tombstones (see SyncEngine.reconcileItems) is
+        // "delete the local row entirely" — NOT "upsert with deletedAt
+        // set." So the correct assertion is that no local row exists for
+        // this id after reconcile. This holds whether or not B had a
+        // local row before:
+        //   - If B never saw the item (this scenario): nothing was ever
+        //     inserted; reconcile sees the tombstoned wire row and the
+        //     deleteLocalItem path is a no-op. End state: no row.
+        //   - If B had a local active row: reconcile sees the tombstone
+        //     and removes it. End state: no row.
         let items = try env.context.fetch(FetchDescriptor<ItemModel>(
-            predicate: #Predicate<ItemModel> { $0.id == itemId && $0.deletedAt == nil }
+            predicate: #Predicate<ItemModel> { $0.id == itemId }
         ))
-        #expect(items.isEmpty, "expected item \(itemId) to be tombstoned locally, found \(items.count) active rows")
+        #expect(items.isEmpty, "expected no local row for tombstoned item \(itemId), found \(items.count)")
 
         // Also assert the list is still around — only the item was deleted,
         // not the parent list.

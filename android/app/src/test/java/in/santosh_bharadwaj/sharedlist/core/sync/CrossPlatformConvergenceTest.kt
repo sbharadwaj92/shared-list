@@ -268,6 +268,25 @@ public class CrossPlatformConvergenceTest {
         printResult("FINAL_NAME", observed?.name.orEmpty())
     }
 
+    /**
+     * Reconcile-only step the harness invokes on the act platform AFTER
+     * the observer ran its rename. Refreshes the local row to the latest
+     * serverside name without performing any new mutation. The harness
+     * asserts FINAL_NAME from this run matches the observer's
+     * FINAL_NAME — that's the cross-platform convergence invariant
+     * (both devices end up with the same row).
+     */
+    @Test
+    public fun scenarioC_reconcileOnly(): Unit = runTest {
+        val ctx = makeEnvironment()
+        val listId = requireEnv("CROSS_PLATFORM_LIST_ID")
+
+        ctx.syncEngine.reconcile()
+        val observed = database.listDao().findById(listId)
+        printResult("LIST_ID", listId)
+        printResult("FINAL_NAME", observed?.name.orEmpty())
+    }
+
     // endregion
 
     // region Scenario (d): tombstones flow during 90-day window
@@ -307,20 +326,19 @@ public class CrossPlatformConvergenceTest {
 
         ctx.syncEngine.reconcile()
 
-        // The deletion happened on A's side — the ItemDao should not
-        // surface an active row after our reconcile. The read-side
-        // reconciler's deletion path runs because the wire DTO's
-        // `deletedAt` is non-nil (tombstone), and our local store gets
-        // a matching `deletedAt` written.
+        // The deletion happened on A's side. The read-side reconciler's
+        // contract for tombstones (see SyncEngine.reconcileItems) is
+        // "itemDao.deleteById(id)" — delete the local row entirely,
+        // NOT "upsert with deletedAt set." So the correct assertion is
+        // that no local row exists for this id after reconcile. This
+        // holds whether or not B had a local row before:
+        //   - If B never saw the item (this scenario): nothing was ever
+        //     inserted; reconcile sees the tombstoned wire row and the
+        //     deleteById call is a no-op. End state: no row.
+        //   - If B had a local active row: reconcile sees the tombstone
+        //     and removes it. End state: no row.
         val item = database.itemDao().findById(itemId)
-        // Either the row is gone (Room CASCADE on parent list, but
-        // we're not deleting the list) or it's present with deletedAt
-        // set. The reconciler writes deletedAt rather than DELETE-ing
-        // the row, so we expect "present, tombstoned."
-        assertNotNull("expected tombstoned local row for $itemId, got null", item)
-        if (item != null) {
-            assertNotNull("expected deletedAt on tombstoned row $itemId", item.deletedAt)
-        }
+        assertNull("expected no local row for tombstoned item $itemId, got $item", item)
 
         // Also assert the parent list is still around — only the item
         // was deleted, not the list.
@@ -330,7 +348,7 @@ public class CrossPlatformConvergenceTest {
 
         printResult(
             "OBSERVED_DELETED",
-            if (item?.deletedAt != null) "true" else "false",
+            if (item == null) "true" else "false",
         )
     }
 
