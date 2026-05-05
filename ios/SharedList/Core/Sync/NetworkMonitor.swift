@@ -44,13 +44,16 @@ public final class NetworkMonitor: NetworkMonitoring {
     /// Pure-Swift path monitor. We hold a reference for the lifetime of the
     /// AppContainer; `start(queue:)` activates it, and the OS keeps delivering
     /// updates until `cancel()` is called. We don't currently call `cancel()`
-    /// — the monitor is meant to live for the app's lifetime.
-    nonisolated(unsafe) private let monitor = NWPathMonitor()
+    /// — the monitor is meant to live for the app's lifetime. `NWPathMonitor`
+    /// is `Sendable` in the iOS 26 SDK so the let is `nonisolated` by default
+    /// inside this `@MainActor`-isolated class.
+    nonisolated private let monitor = NWPathMonitor()
 
     /// Private dispatch queue for path callbacks. Apple's docs require we
     /// pass *some* queue; using a dedicated one avoids contention with
-    /// arbitrary user-visible work on the main queue.
-    nonisolated(unsafe) private let queue = DispatchQueue(label: "in.santosh-bharadwaj.sharedlist.network-monitor")
+    /// arbitrary user-visible work on the main queue. `DispatchQueue` is
+    /// `Sendable`, so the same `nonisolated` rule applies.
+    nonisolated private let queue = DispatchQueue(label: "in.santosh-bharadwaj.sharedlist.network-monitor")
 
     public init() {
         // Capture self weakly so the closure doesn't keep us alive past the
