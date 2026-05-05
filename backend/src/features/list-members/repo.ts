@@ -1,4 +1,5 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../../infra/db.ts';
 import { listMembers } from '../../infra/schema.ts';
 
@@ -39,3 +40,52 @@ export const activeMembersOfList = async (db: Database, listId: string) =>
     .select()
     .from(listMembers)
     .where(and(eq(listMembers.listId, listId), isNull(listMembers.deletedAt)));
+
+/** Membership rows touched after `since` that the caller has a stake in,
+ * INCLUDING soft-deleted (tombstoned) rows. Used by
+ * `GET /sync/list_members?since=`.
+ *
+ * "Has a stake in" decomposes into two cases the client cares about:
+ *
+ *   1. The caller's *own* membership row (active or tombstoned) for any list.
+ *      Surfaces self-revocations: when the caller is removed from a list,
+ *      this row's `deleted_at` is the signal that tells the client to drop
+ *      the list locally.
+ *
+ *   2. *Other* members' rows for lists where the caller is currently an active
+ *      member. Lets the client render the "people in this list" view and
+ *      keep it fresh as members come and go. Once the caller is revoked from
+ *      a list (case 1 fires), they stop seeing further changes to that list's
+ *      member set — privacy-preserving.
+ *
+ * Implementation is a single SELECT with two OR'd predicates instead of two
+ * separate queries: the union semantics live in SQL, the route handler stays
+ * declarative, and Postgres can use the appropriate indexes
+ * (`list_members_user_id_idx` for case 1, the PK for case 2's IN-subquery). */
+export const membersSince = async (db: Database, userId: string, since: Date) => {
+  // Subquery alias — listing my active memberships, the set of lists whose
+  // *other* members' rows I'm allowed to see. Aliased so we can reference it
+  // in the outer query without name collision against the main `listMembers`
+  // table on the other side of the OR.
+  const myMemberships = alias(listMembers, 'my_memberships');
+  return db
+    .select()
+    .from(listMembers)
+    .where(
+      and(
+        gt(listMembers.updatedAt, since),
+        or(
+          // Case 1: my own row — active or tombstoned, regardless of list state.
+          eq(listMembers.userId, userId),
+          // Case 2: anyone's row in lists where I'm currently an active member.
+          inArray(
+            listMembers.listId,
+            db
+              .select({ id: myMemberships.listId })
+              .from(myMemberships)
+              .where(and(eq(myMemberships.userId, userId), isNull(myMemberships.deletedAt))),
+          ),
+        ),
+      ),
+    );
+};

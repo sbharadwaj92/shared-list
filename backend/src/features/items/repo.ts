@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { Database } from '../../infra/db.ts';
-import { items } from '../../infra/schema.ts';
+import { items, listMembers } from '../../infra/schema.ts';
 
 // Repo helpers for the `items` table.
 //
@@ -31,3 +31,31 @@ export const findActiveItemById = async (db: Database, id: string) => {
     .limit(1);
   return row;
 };
+
+/** Items touched after `since` in any list the user is *currently* a member of,
+ * INCLUDING soft-deleted (tombstoned) item rows. Used by `GET /sync/items?since=`.
+ *
+ * Same two filter rules as `listsSince`:
+ *   - `items.deleted_at` not filtered → tombstones flow.
+ *   - `list_members.deleted_at IS NULL` filtered → revoked users stop seeing
+ *     items in lists they no longer belong to.
+ *
+ * No `position` ordering here — sync responses are timestamp-ordered, not
+ * display-ordered. Display order is rebuilt locally from `position` after
+ * the client merges the batch into its store. */
+export const itemsSince = async (db: Database, userId: string, since: Date) =>
+  db
+    .select()
+    .from(items)
+    .where(
+      and(
+        gt(items.updatedAt, since),
+        inArray(
+          items.listId,
+          db
+            .select({ id: listMembers.listId })
+            .from(listMembers)
+            .where(and(eq(listMembers.userId, userId), isNull(listMembers.deletedAt))),
+        ),
+      ),
+    );

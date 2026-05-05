@@ -1,6 +1,6 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import type { Database } from '../../infra/db.ts';
-import { lists } from '../../infra/schema.ts';
+import { listMembers, lists } from '../../infra/schema.ts';
 
 // Repo helpers for the `lists` table.
 //
@@ -34,3 +34,43 @@ export const findActiveListById = async (db: Database, id: string) => {
     .limit(1);
   return row;
 };
+
+/** Lists touched after `since` that the user is *currently* a member of,
+ * INCLUDING soft-deleted (tombstoned) list rows. This is the read used by
+ * `GET /sync/lists?since=`.
+ *
+ * Two filter rules to keep straight:
+ *
+ *   - **`lists.deleted_at` is NOT filtered.** The whole point of the sync feed
+ *     is to surface tombstones so clients can reconcile disappearances. A row
+ *     with `deleted_at IS NOT NULL` and `updated_at > since` is exactly the
+ *     "this list has been deleted since you last synced" signal.
+ *
+ *   - **`list_members.deleted_at IS NULL` IS filtered.** A user whose membership
+ *     was revoked must stop receiving further updates to that list immediately;
+ *     they learn about the revocation itself from `GET /sync/list_members?since=`,
+ *     which surfaces their own soft-deleted membership row as a tombstone.
+ *     Mixing in further list updates after revocation would be a privacy bug
+ *     and a protocol smell — one feed handles the membership state, another
+ *     the list state, and the client merges them locally.
+ *
+ * Phase 7's deliberate trade-off: a list-rename that lands in the same write
+ * window as a member-revocation will not reach the revoked user. They'll see
+ * the membership tombstone and drop the list locally, which is the correct
+ * end state regardless. */
+export const listsSince = async (db: Database, userId: string, since: Date) =>
+  db
+    .select()
+    .from(lists)
+    .where(
+      and(
+        gt(lists.updatedAt, since),
+        inArray(
+          lists.id,
+          db
+            .select({ id: listMembers.listId })
+            .from(listMembers)
+            .where(and(eq(listMembers.userId, userId), isNull(listMembers.deletedAt))),
+        ),
+      ),
+    );
