@@ -2,7 +2,10 @@
 #
 # Cert/key are generated locally with mkcert (Phase 1 setup):
 #   cd backend/certs && mkcert -cert-file dev.crt -key-file dev.key \
-#     Santoshs-MacBook-Pro-48.local localhost 127.0.0.1
+#     Santoshs-MacBook-Pro-48.local localhost 127.0.0.1 10.0.2.2
+# The 10.0.2.2 SAN is the well-known Android Emulator alias for the host
+# loopback (Phase 6). Without it, the emulator can't trust the cert when
+# falling back from .local mDNS (which the emulator's NAT can't resolve).
 # `mkcert -install` puts the local CA into the macOS / iOS / Android trust stores;
 # `tls internal` would make Caddy ignore mkcert and use its own CA — wrong here.
 #
@@ -18,7 +21,7 @@
   admin off
 }
 
-Santoshs-MacBook-Pro-48.local, localhost {
+Santoshs-MacBook-Pro-48.local, localhost, 10.0.2.2 {
   tls /Users/santoshbharadwaj/Projects/shared-list/backend/certs/dev.crt /Users/santoshbharadwaj/Projects/shared-list/backend/certs/dev.key
   encode zstd gzip
   reverse_proxy 127.0.0.1:3000

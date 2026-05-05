@@ -38,6 +38,14 @@ android {
             // Keep debug builds unobfuscated and unminified so stack traces
             // are readable. We're not shipping to the Play Store.
             isMinifyEnabled = false
+            // Backend URL override for the Android Emulator. The emulator's
+            // NAT can't resolve the .local mDNS name on the host, but it
+            // routes 10.0.2.2 → host's 127.0.0.1. The Caddy SAN was
+            // regenerated in Phase 6 to include this address, and the
+            // mkcert root CA installed in the emulator trusts it. Physical
+            // devices on the same Wi-Fi can resolve .local natively, so
+            // they get the .local hostname via the release default below.
+            buildConfigField("String", "BACKEND_BASE_URL", "\"https://10.0.2.2\"")
         }
         release {
             // ProGuard / R8 only matter when we ship; for a learning project
@@ -45,6 +53,7 @@ android {
             // build deterministic. Flip this on later if we ever ship to Play.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("String", "BACKEND_BASE_URL", "\"https://Santoshs-MacBook-Pro-48.local\"")
         }
     }
 
@@ -58,10 +67,13 @@ android {
 
     // Compose feature toggle. Enabling `compose = true` activates the K2
     // Compose Compiler plugin (applied via `kotlin-compose` plugin in the
-    // plugins block). Without the plugin, this flag is a no-op.
+    // plugins block). Without the plugin, this flag is a no-op. We also
+    // enable `buildConfig` so the `buildConfigField(...)` calls in the
+    // buildTypes block emit a generated `BuildConfig` class with our
+    // BACKEND_BASE_URL constant; AGP 8.x defaults this off.
     buildFeatures {
         compose = true
-        buildConfig = false
+        buildConfig = true
     }
 
     // Pack the bare minimum into the APK. Excludes a metadata file that

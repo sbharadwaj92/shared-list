@@ -2,6 +2,7 @@ package `in`.santosh_bharadwaj.sharedlist.app
 
 import android.content.Context
 import androidx.compose.runtime.compositionLocalOf
+import `in`.santosh_bharadwaj.sharedlist.BuildConfig
 import `in`.santosh_bharadwaj.sharedlist.core.auth.AuthService
 import `in`.santosh_bharadwaj.sharedlist.core.auth.DefaultAuthService
 import `in`.santosh_bharadwaj.sharedlist.core.auth.TokenStore
@@ -49,8 +50,18 @@ public class AppContainer private constructor(
     }
 
     public companion object {
-        /** Default backend URL — see class kdoc for rationale. */
-        public const val DEFAULT_BASE_URL: String = "https://Santoshs-MacBook-Pro-48.local"
+        /**
+         * Default backend URL — sourced from `BuildConfig.BACKEND_BASE_URL`,
+         * which the Gradle build wires per-build-type:
+         *   - Debug builds: `https://10.0.2.2` so the Android Emulator (whose
+         *     NAT can't resolve `.local` mDNS) can reach Caddy on the host
+         *     via the well-known emulator alias for 127.0.0.1.
+         *   - Release builds: `https://Santoshs-MacBook-Pro-48.local` (the
+         *     mDNS name physical devices on the same Wi-Fi resolve natively).
+         * Both URLs are covered by the same mkcert SAN (regenerated in
+         * Phase 6) so the same root CA trusts either one.
+         */
+        public val DEFAULT_BASE_URL: String = BuildConfig.BACKEND_BASE_URL
 
         /** Construct the production container. Called once from [SharedListApplication.onCreate]. */
         public fun create(context: Context, baseUrl: String = DEFAULT_BASE_URL): AppContainer {
