@@ -1,11 +1,17 @@
 package `in`.santosh_bharadwaj.sharedlist.features.auth
 
+import android.content.Context
 import `in`.santosh_bharadwaj.sharedlist.app.AppContainer
 import `in`.santosh_bharadwaj.sharedlist.core.auth.AuthService
 import `in`.santosh_bharadwaj.sharedlist.core.auth.AuthUser
 import `in`.santosh_bharadwaj.sharedlist.core.auth.TokenStore
 import `in`.santosh_bharadwaj.sharedlist.core.networking.ApiClient
 import `in`.santosh_bharadwaj.sharedlist.core.storage.InMemorySecureStorage
+import `in`.santosh_bharadwaj.sharedlist.core.sync.Drainer
+import `in`.santosh_bharadwaj.sharedlist.core.sync.FakeNetworkMonitor
+import `in`.santosh_bharadwaj.sharedlist.core.sync.Mutator
+import `in`.santosh_bharadwaj.sharedlist.core.sync.SyncDatabase
+import `in`.santosh_bharadwaj.sharedlist.core.sync.SyncEngine
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -23,7 +29,7 @@ import kotlinx.coroutines.runBlocking
  */
 internal object PreviewSupport {
 
-    fun loggedOutContainer(): AppContainer {
+    fun loggedOutContainer(context: Context): AppContainer {
         val storage = InMemorySecureStorage()
         val tokenStore = TokenStore(storage)
         // ApiClient needs SOME engine, but StubAuthService never invokes it
@@ -31,10 +37,10 @@ internal object PreviewSupport {
         // open a real socket until a request actually fires.
         val api = ApiClient(baseUrl = AppContainer.DEFAULT_BASE_URL, tokenStore = tokenStore)
         val auth = StubAuthService(tokenStore = tokenStore, behavior = StubAuthService.Behavior.AlwaysLoggedOut)
-        return AppContainer.forTesting(storage, tokenStore, api, auth)
+        return assemble(context, storage, tokenStore, api, auth)
     }
 
-    fun loggedInContainer(): AppContainer {
+    fun loggedInContainer(context: Context): AppContainer {
         val storage = InMemorySecureStorage()
         val tokenStore = TokenStore(storage)
         val api = ApiClient(baseUrl = AppContainer.DEFAULT_BASE_URL, tokenStore = tokenStore)
@@ -51,7 +57,45 @@ internal object PreviewSupport {
                 ),
             )
         }
-        return AppContainer.forTesting(storage, tokenStore, api, auth)
+        return assemble(context, storage, tokenStore, api, auth)
+    }
+
+    /**
+     * Build the in-memory sync stack for previews. We use a real
+     * [SyncDatabase] in memory + a [FakeNetworkMonitor] so the sync
+     * engine and drainer can construct without exploding, but no
+     * actual network calls fire because the StubAuthService never
+     * routes through them in preview rendering.
+     */
+    private fun assemble(
+        context: Context,
+        storage: InMemorySecureStorage,
+        tokenStore: TokenStore,
+        api: ApiClient,
+        auth: AuthService,
+    ): AppContainer {
+        val database = SyncDatabase.inMemory(context)
+        val monitor = FakeNetworkMonitor(initial = false)
+        val syncEngine = SyncEngine(
+            api = api,
+            database = database,
+            monitor = monitor,
+            currentUserId = { tokenStore.current?.user?.id },
+        )
+        val mutator = Mutator(database = database)
+        val drainer = Drainer(api = api, database = database, syncEngine = syncEngine, monitor = monitor)
+        mutator.attachDrainer(drainer)
+        return AppContainer.forTesting(
+            secureStorage = storage,
+            tokenStore = tokenStore,
+            api = api,
+            auth = auth,
+            syncDatabase = database,
+            networkMonitor = monitor,
+            syncEngine = syncEngine,
+            mutator = mutator,
+            drainer = drainer,
+        )
     }
 }
 

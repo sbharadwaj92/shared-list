@@ -48,6 +48,13 @@ kotlinxSerialization = "1.7.3"
 # pattern that emits warnings on minSdk 35). We accept the alpha for v1.
 securityCrypto = "1.1.0-alpha06"
 
+# Room — SwiftData's nearest analogue on Android: typed @Entity classes, KSP-
+# generated DAOs, transactional writes via @Transaction-annotated DAO methods.
+# We pick Room over a hand-rolled SQLite layer because the type-safety and
+# transaction story match what we already use on iOS (single ModelContext,
+# atomic context.save()). 2.6.x is the current stable; 2.7.x is in alpha.
+room = "2.6.1"
+
 # Static analysis. Detekt is the closest cultural mirror to SwiftLint /
 # warnings-as-errors in the iOS world. Coroutine ruleset catches misuse of
 # structured concurrency (e.g. unscoped GlobalScope.launch).
@@ -60,6 +67,14 @@ junit = "4.13.2"
 mockk = "1.13.13"
 turbine = "1.2.0"
 kotlinxCoroutinesTest = "1.9.0"
+# Robolectric — runs Android-framework-touching unit tests on the host JVM
+# without needing an emulator. Required for Phase 8's Room tests because
+# Room's database builder needs a real Android Context. We pin to the
+# version that supports SDK 35 (the project's minSdk = compileSdk). 4.14
+# is the first release with SDK 35 shadows; 4.13 caps at SDK 34 and
+# refuses to parse our manifest.
+robolectric = "4.14.1"
+androidxTestCore = "1.6.1"
 
 [libraries]
 # Core AndroidX. core-ktx supplies the `Context.dataStore`-style extension
@@ -112,11 +127,21 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # EncryptedSharedPreferences — Tink-backed AES-GCM, MasterKey via Android Keystore.
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
+# Room — runtime + KSP code-gen + Kotlin coroutine extensions (suspend DAOs,
+# Flow returns). The compiler artifact is consumed via `ksp(libs.room.compiler)`
+# in the app module's dependencies block.
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
 # Test deps.
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 
 # Detekt formatting ruleset (a separate artifact from the plugin itself).
 detekt-formatting = { group = "io.gitlab.arturbosch.detekt", name = "detekt-formatting", version.ref = "detekt" }
@@ -133,3 +158,8 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 
 # Detekt static analysis.
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+
+# KSP — Kotlin Symbol Processing, used by Room's compiler to generate DAO
+# implementations. Replaces kapt for Room (kapt is in maintenance mode and
+# slower). The version must match the Kotlin version (`<kotlin>-<ksp>`).
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

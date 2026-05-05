@@ -10,6 +10,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 // Read an optional `BACKEND_BASE_URL` override from `android/local.properties`.
@@ -113,14 +114,14 @@ android {
     }
 
     // Tests run on the host JVM (no emulator) — fast, free, all our coverage
-    // for Phase 6. Instrumented tests are deferred per PLAN.md L308.
+    // for Phase 6+. Instrumented tests are deferred per PLAN.md L308.
     testOptions {
         unitTests {
             isReturnDefaultValues = true
-            // Make Robolectric-free unit tests fail-fast when they accidentally
-            // touch the Android framework classes (which return mock-defaults
-            // by, well, default). We keep `isReturnDefaultValues = true` for
-            // ergonomics on simple stubs.
+            // Robolectric (Phase 8) needs the Android resources in the test
+            // classpath so it can spin up a fake Context. Cheap to enable
+            // for all unit tests — pure-JVM tests don't load the resources.
+            isIncludeAndroidResources = true
         }
     }
 
@@ -205,10 +206,24 @@ dependencies {
     // Encrypted SharedPreferences for refresh-token storage.
     implementation(libs.androidx.security.crypto)
 
+    // Room — local-first cache for sync engine (Phase 8). The compiler runs via
+    // KSP and generates DAO implementations at compile time; the runtime lib is
+    // what the generated code calls into; the ktx artifact adds suspend-aware
+    // DAO support and Flow return types.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     // Tests.
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.androidx.room.testing)
+    // Robolectric runs Android-framework code on the host JVM. Required
+    // for the sync stack's Room tests (Room's database builder needs a
+    // Context, which the bare JUnit runner can't provide).
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

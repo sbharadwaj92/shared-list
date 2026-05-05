@@ -64,11 +64,12 @@ For physical devices, the phone and Mac MUST be on the same Wi-Fi network withou
 - `app/src/main/java/in/santosh_bharadwaj/sharedlist/`
   - `app/` — `SharedListApplication`, `MainActivity`, `AppContainer`, `LocalAppContainer`
   - `core/auth/` — `TokenStore`, `AuthService`, auth DTOs
-  - `core/networking/` — `ApiClient` (Ktor), error types
+  - `core/networking/` — `ApiClient` (Ktor), `JsonCoders` (the wire-format `Json` instance + `Instant` serializer), error types
   - `core/storage/` — `SecureStorage` (EncryptedSharedPreferences wrapper) + in-memory test impl
+  - `core/sync/` — `SyncDatabase` (Room), entities + DAOs, `SyncEngine` (read-side reconciler), `Mutator` (writes + queue), `Drainer` (queue → HTTP), `NetworkMonitor`, sync DTOs
   - `core/ui/` — `SharedListTheme` (Material 3)
   - `features/auth/` — `RootScreen`, `LoginFlowScreen`, `LoginFlowViewModel`, preview support
-- `app/src/test/` — pure-JVM unit tests (no emulator)
+- `app/src/test/` — pure-JVM unit tests (Robolectric for the Room-touching ones; `SyncFuzzTest` and `DrainerIntegrationTest` for the sync stack)
 - `gradle/libs.versions.toml` — version catalog
 - `config/detekt/detekt.yml` — Detekt rules
 
@@ -88,3 +89,26 @@ For physical devices, the phone and Mac MUST be on the same Wi-Fi network withou
 ./gradlew :app:installDebug
 adb shell am start -n in.santosh_bharadwaj.sharedlist/.app.MainActivity
 ```
+
+## Sync engine integration tests
+
+`DrainerIntegrationTest` is **env-gated** against the live backend. The test class calls `assumeTrue(BACKEND_URL != null)`, so a plain `./gradlew testDebugUnitTest` skips it silently — `gradle` reports it as "skipped", not "failed".
+
+To run it before merging anything that changes the wire shape:
+
+```bash
+# Terminal 1 — start the backend.
+cd backend
+bun run dev   # or: docker compose up -d
+
+# Terminal 2 — run the integration tests against it.
+cd android
+BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
+  ./gradlew :app:testDebugUnitTest --tests '*DrainerIntegrationTest*'
+```
+
+The tests sign up a fresh user per run (unique email suffix) so they're isolated from each other. They cover:
+- `createListRoundTripsThroughBackend` — POST → drain → reconcile → canonical row appears locally.
+- `offlineMutateThenReconnectDrains` — Mutator enqueues while offline, drainer is no-op, going online + ticking flushes the queue.
+
+CI runs are deferred — same convention as iOS, see commit history for the "leave-as-manual-pre-merge" decision rationale (GitHub's macOS runners couldn't nest-virtualize for Postgres; we kept the convention symmetric on Android even though Linux runners technically could). Revisit in Phase 19 polish.

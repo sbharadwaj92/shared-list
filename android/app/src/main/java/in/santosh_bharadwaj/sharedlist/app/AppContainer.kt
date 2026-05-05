@@ -9,6 +9,16 @@ import `in`.santosh_bharadwaj.sharedlist.core.auth.TokenStore
 import `in`.santosh_bharadwaj.sharedlist.core.networking.ApiClient
 import `in`.santosh_bharadwaj.sharedlist.core.storage.EncryptedSharedPreferencesStorage
 import `in`.santosh_bharadwaj.sharedlist.core.storage.SecureStorage
+import `in`.santosh_bharadwaj.sharedlist.core.sync.Drainer
+import `in`.santosh_bharadwaj.sharedlist.core.sync.Mutator
+import `in`.santosh_bharadwaj.sharedlist.core.sync.NetworkMonitor
+import `in`.santosh_bharadwaj.sharedlist.core.sync.NetworkMonitoring
+import `in`.santosh_bharadwaj.sharedlist.core.sync.SyncDatabase
+import `in`.santosh_bharadwaj.sharedlist.core.sync.SyncEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Manual DI container. PLAN.md mandates this approach (vs Hilt / Koin / kotlin-inject):
@@ -37,16 +47,51 @@ import `in`.santosh_bharadwaj.sharedlist.core.storage.SecureStorage
  * resolves natively and matches the Caddy mkcert SAN, so we keep it as the
  * default.
  */
+@Suppress("LongParameterList")
 public class AppContainer private constructor(
     public val secureStorage: SecureStorage,
     public val tokenStore: TokenStore,
     public val api: ApiClient,
     public val auth: AuthService,
+    public val syncDatabase: SyncDatabase,
+    public val networkMonitor: NetworkMonitoring,
+    public val syncEngine: SyncEngine,
+    public val mutator: Mutator,
+    public val drainer: Drainer,
+    /** Long-lived background scope for `bootstrap()` work that should
+     *  outlive the launching composable. */
+    private val containerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
-    /** Hydrate any persisted session at process start. Idempotent — running it
-     *  twice is a no-op. */
+    /**
+     * Hydrate any persisted session at process start, kick off network
+     * monitoring, and trigger an initial reconcile if a session is
+     * already loaded. Idempotent — running it twice is a no-op for the
+     * token store and only re-emits the current online state for the
+     * monitor.
+     */
     public suspend fun bootstrap() {
         tokenStore.loadFromStorage()
+        // Begin observing connectivity changes. Cheap to call multiple
+        // times — the underlying NetworkCallback registration is
+        // idempotent inside [NetworkMonitor].
+        (networkMonitor as? NetworkMonitor)?.start()
+        // Kick the drainer when we transition to online — covers the
+        // "user was offline at app launch, came online a moment later"
+        // case without polling.
+        containerScope.launch {
+            networkMonitor.isOnline.collect { online ->
+                if (online) drainer.kick()
+            }
+        }
+        // If a session is loaded, trigger an initial reconcile so the
+        // local cache is fresh by the time the UI renders. Failures
+        // are swallowed to a debug log — the next foreground or kick
+        // gets us another chance.
+        if (tokenStore.current != null) {
+            containerScope.launch {
+                runCatching { syncEngine.reconcile() }
+            }
+        }
     }
 
     public companion object {
@@ -69,7 +114,39 @@ public class AppContainer private constructor(
             val tokenStore = TokenStore(storage)
             val api = ApiClient(baseUrl = baseUrl, tokenStore = tokenStore)
             val auth = DefaultAuthService(api = api, tokenStore = tokenStore)
-            return AppContainer(storage, tokenStore, api, auth)
+            val database = SyncDatabase.create(context.applicationContext)
+            val monitor = NetworkMonitor(context.applicationContext)
+            // SyncEngine reads the current user id lazily so it stays
+            // consistent with the token store's session lifecycle.
+            val syncEngine = SyncEngine(
+                api = api,
+                database = database,
+                monitor = monitor,
+                currentUserId = { tokenStore.current?.user?.id },
+            )
+            val mutator = Mutator(database = database)
+            val drainer = Drainer(
+                api = api,
+                database = database,
+                syncEngine = syncEngine,
+                monitor = monitor,
+            )
+            // Two-phase wiring — the Mutator's `kick()` after each save
+            // depends on the Drainer being present, but both are
+            // singletons constructed in this companion. See iOS
+            // `Mutator.attachDrainer` for matching rationale.
+            mutator.attachDrainer(drainer)
+            return AppContainer(
+                secureStorage = storage,
+                tokenStore = tokenStore,
+                api = api,
+                auth = auth,
+                syncDatabase = database,
+                networkMonitor = monitor,
+                syncEngine = syncEngine,
+                mutator = mutator,
+                drainer = drainer,
+            )
         }
 
         /**
@@ -78,12 +155,28 @@ public class AppContainer private constructor(
          * a Context that the preview runner doesn't always provide cleanly) and
          * in unit tests that want a real ApiClient wired to a mock Ktor engine.
          */
+        @Suppress("LongParameterList")
         public fun forTesting(
             secureStorage: SecureStorage,
             tokenStore: TokenStore,
             api: ApiClient,
             auth: AuthService,
-        ): AppContainer = AppContainer(secureStorage, tokenStore, api, auth)
+            syncDatabase: SyncDatabase,
+            networkMonitor: NetworkMonitoring,
+            syncEngine: SyncEngine,
+            mutator: Mutator,
+            drainer: Drainer,
+        ): AppContainer = AppContainer(
+            secureStorage = secureStorage,
+            tokenStore = tokenStore,
+            api = api,
+            auth = auth,
+            syncDatabase = syncDatabase,
+            networkMonitor = networkMonitor,
+            syncEngine = syncEngine,
+            mutator = mutator,
+            drainer = drainer,
+        )
     }
 }
 
