@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-only manifest fragment. AGP's manifest merger combines this with
+    src/main/AndroidManifest.xml when building the debug variant; release
+    builds use only the main manifest.
+
+    Purpose: opt the debug app into trusting user-installed CA certificates
+    via the network_security_config.xml in src/debug/res/xml/. Required so
+    the mkcert root CA the developer installed via Settings is accepted at
+    TLS handshake time. Without this attribute, OkHttp/Ktor report
+    "Trust anchor for certification path not found" for the local backend.
+
+    The `tools:replace` attribute is needed because the main manifest
+    doesn't declare networkSecurityConfig. AGP would normally take the
+    union of attributes; `replace` makes the merger explicit and
+    deterministic regardless of merge order.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:networkSecurityConfig" />
+
+</manifest>
