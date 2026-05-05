@@ -9,8 +9,21 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — slice A merged (PR #8); slice B code-complete on `phase-07-ios-sync-skeleton` branch, awaiting PR + merge
-**Next action**: open PR for slice B (iOS read-side sync engine). After merge, begin slice C — backend `If-Match` conditional updates + idempotent `POST` for lists/items, iOS `MutationQueueEntry` table + drainer + LWW. The full offline-mutate / reconnect / reconcile cycle proves out at the end of slice C. Slice D wraps with tombstone fuzz + `docs/learning/phase-07.md`. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
+**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — slices A + B merged (PRs #8, #9); ready to start slice C.1 (backend writes)
+**Next action**: begin **slice C.1** — backend write side. Branch off main as `phase-07-backend-writes`. Scope:
+
+- `POST /lists` — idempotent via UUID v7 + `INSERT ... ON CONFLICT (id) DO NOTHING RETURNING *`. Actor becomes the `owner` member automatically (one transaction).
+- `POST /lists/:id/items` — same idempotency story; auth requires active membership of the list.
+- `PATCH /lists/:id` — update `name`. Conditional via `If-Match: <updatedAt-ISO8601>` header. 409 on mismatch with the current row (carries the latest `updated_at` so the client can re-fetch and merge).
+- `PATCH /items/:id` — update `text` / `position` / `checkedAt`. Same `If-Match` semantics.
+- `DELETE /lists/:id` — soft-delete (set `deleted_at`); requires `role = 'owner'`; cascade soft-delete to items in the same transaction so each gets its own `updated_at` bump for the `?since=` feed (see PLAN.md L177).
+- `DELETE /items/:id` — soft-delete; requires active membership of the list.
+
+All endpoints behind `requireAuth`. Add new repo helpers (insert / softDelete / conditionalUpdate) co-located with their resource. Update `backend/docs/sync.md` with the slice-C-landed sections (currently marked pending). Integration tests pin: idempotent-POST returns the existing row on retry; If-Match 409 path; cross-user 403/404; cascade soft-delete for lists.
+
+After C.1 merges, **slice C.2** lands the iOS `MutationQueueEntry` `@Model` + optimistic-apply path; **slice C.3** lands the drainer + 409-→-reconcile + real-backend Testcontainers integration test (the cycle slice B deferred). Slice D wraps with tombstone fuzz + `docs/learning/phase-07.md`.
+
+Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
 **Blockers**: none
 
 ---
