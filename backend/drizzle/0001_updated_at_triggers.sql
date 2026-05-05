@@ -13,6 +13,11 @@
 -- transaction): clients reading `?since=` see them all, atomically, without
 -- one row sneaking in just below the cutoff.
 --
+-- Phase 7 follow-up: `0002_truncate_updated_at_ms.sql` swaps `now()` for
+-- `date_trunc('milliseconds', now())` so JS/Swift/Kotlin Date round-trip is
+-- lossless. This file's body is the historical first version; do not edit it
+-- — the active body lives in 0002.
+--
 -- `LANGUAGE plpgsql` is required because the body is procedural (an assignment
 -- and a return); SQL functions can't return NEW. `STABLE` is the strongest
 -- volatility we can claim — `now()` is stable within a transaction.
