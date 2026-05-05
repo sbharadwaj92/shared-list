@@ -56,13 +56,17 @@ jobs:
       - name: Install backend dependencies
         run: bun install --frozen-lockfile
 
-      # macOS GitHub runners ship Colima for the Docker daemon. We
-      # start it explicitly with extra resources so Postgres has room
-      # to breathe — the default Colima memory cap (2GB) is fine for
-      # one Postgres but cuts close.
-      - name: Start Docker (Colima)
+      # macOS GitHub runners don't ship a Docker daemon (Docker
+      # Desktop requires a license; the runner image excludes it).
+      # Colima provides a lightweight QEMU/Lima-based replacement.
+      # We `brew install` it here rather than assuming it's
+      # preinstalled — the macos-15 image dropped Colima from its
+      # baseline a few image versions ago. Brew installs in ~30s.
+      - name: Install + start Docker (Colima)
         run: |
-          # Colima is preinstalled on macos-15 runners but not started.
+          brew install colima docker docker-compose
+          # Generous resources so Postgres has headroom — default cap
+          # is 2GB which can starve under load.
           colima start --cpu 2 --memory 4 --disk 10
           docker info
 
