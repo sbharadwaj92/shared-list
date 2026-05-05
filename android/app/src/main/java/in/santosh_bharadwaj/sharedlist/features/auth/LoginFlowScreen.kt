@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -152,7 +153,14 @@ private fun LoginFlowContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (state.isSubmitting) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                // See ButtonSpinnerSize kdoc in RootScreen.kt — using
+                // size(...) instead of just height(...) prevents the
+                // indicator from filling the button's full width.
+                CircularProgressIndicator(
+                    modifier = Modifier.size(ButtonSpinnerSize),
+                    strokeWidth = ButtonSpinnerStroke,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
             } else {
                 Text(
                     text = when (state.mode) {

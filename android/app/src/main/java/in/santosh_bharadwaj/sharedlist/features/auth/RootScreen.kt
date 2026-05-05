@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Button
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import `in`.santosh_bharadwaj.sharedlist.app.LocalAppContainer
@@ -126,7 +128,17 @@ private fun AuthenticatedHomePlaceholder() {
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (isSigningOut) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                // Constrain BOTH dimensions and reduce the stroke. Without
+                // `size(...)` (only height), the indicator stretches to the
+                // button's full width because CircularProgressIndicator's
+                // intrinsic width matches its container. Stroke shrinks
+                // proportionally so the spinner reads as a button-internal
+                // affordance, not as the button itself.
+                CircularProgressIndicator(
+                    modifier = Modifier.size(ButtonSpinnerSize),
+                    strokeWidth = ButtonSpinnerStroke,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
             } else {
                 Text("Sign Out")
             }
@@ -141,6 +153,13 @@ private fun AuthenticatedHomePlaceholder() {
 // named constant so a future Material 3 success-role bump has a single edit
 // site and Detekt stops calling it a magic number.
 private val SuccessGreen: Color = Color(red = 0x34, green = 0xC7, blue = 0x59)
+
+// Size for the small in-button progress spinner. M3 Buttons are 40dp tall;
+// 20dp diameter sits centered with comfortable padding. Stroke matched
+// proportionally — the default 4dp stroke on a 20dp circle reads as a
+// chunky donut, 2dp keeps the visual weight similar to filled text.
+internal val ButtonSpinnerSize: Dp = 20.dp
+internal val ButtonSpinnerStroke: Dp = 2.dp
 
 @Preview(name = "Logged out", showBackground = true)
 @Composable
