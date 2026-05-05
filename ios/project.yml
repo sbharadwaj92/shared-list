@@ -69,6 +69,18 @@ targets:
         # arbitrary IPs without this; even though we're using TLS, the
         # Bonjour-style hostname needs an explicit exception. See
         # https://developer.apple.com/documentation/bundleresources/information_property_list/nsapptransportsecurity
+        #
+        # Slice D adds `localhost` and `127.0.0.1` as additional exceptions
+        # — needed for the env-gated DrainerIntegration test running on a
+        # GitHub macOS-15 runner that doesn't have mkcert installed. The CI
+        # job boots backend on plain HTTP at `http://localhost:3000` (no
+        # Caddy in CI) and sets `BACKEND_URL=http://localhost:3000`. Both
+        # exceptions allow insecure HTTP because loopback traffic never
+        # leaves the runner — not a meaningful weakening of ATS for a
+        # local-dev-shaped iOS app, and the alternative (install mkcert
+        # root CA + Caddy on CI for one integration test) is significantly
+        # more setup. Production never points at localhost so this surface
+        # is dev/test only in practice.
         NSAppTransportSecurity:
           NSExceptionDomains:
             "santoshs-macbook-pro-48.local":
@@ -76,6 +88,14 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: false
               NSExceptionRequiresForwardSecrecy: true
               NSExceptionMinimumTLSVersion: "TLSv1.2"
+            "localhost":
+              NSIncludesSubdomains: false
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSExceptionRequiresForwardSecrecy: false
+            "127.0.0.1":
+              NSIncludesSubdomains: false
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSExceptionRequiresForwardSecrecy: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: in.santosh-bharadwaj.sharedlist

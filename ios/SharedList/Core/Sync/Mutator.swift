@@ -399,11 +399,13 @@ public final class Mutator {
     // MARK: - Encoding
 
     /// JSON-encode a payload to the string we persist in the queue row.
-    /// Uses `.iso8601` so the embedded `If-Match` timestamp round-trips
-    /// losslessly to the wire format (matches APIClient's decoder config).
+    /// Uses the shared millisecond-precision ISO8601 strategy so the
+    /// embedded `If-Match` timestamp round-trips losslessly through
+    /// the queue and onto the wire. Foundation's default `.iso8601`
+    /// strategy is second-precision and would silently round chained
+    /// `ifMatch` values down — see `JSONCoders.swift`.
     private func encode<T: Encodable>(_ value: T) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        let encoder = JSONCoders.makeEncoder()
         let data = try encoder.encode(value)
         guard let string = String(data: data, encoding: .utf8) else {
             // JSONEncoder always produces valid UTF-8; this branch is a

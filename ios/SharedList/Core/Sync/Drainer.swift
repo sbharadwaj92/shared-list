@@ -609,8 +609,13 @@ public final class Drainer {
     // MARK: - Decoding
 
     private func decode<T: Decodable>(_ type: T.Type, json: String) throws -> T {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Use the shared millisecond-precision decoder so an `ifMatch`
+        // value the Mutator wrote (millisecond-fractional ISO8601)
+        // round-trips back to the same `Date` here. Foundation's
+        // built-in `.iso8601` strategy is second-precision and would
+        // silently strip the fractional component on the read side
+        // even though we wrote it correctly.
+        let decoder = JSONCoders.makeDecoder()
         return try decoder.decode(type, from: Data(json.utf8))
     }
 }
@@ -739,14 +744,20 @@ extension SyncEngine {
 // duplicate the formatter literal, we put it in one extension here.
 
 extension Date {
+    /// Format a Date as the ISO8601 string the backend's wire protocol
+    /// uses (millisecond precision, UTC `Z`). This matches what the
+    /// `?since=` cursor and `If-Match` headers expect.
+    ///
+    /// Implementation note: we use `ISO8601DateFormatter` (via the
+    /// shared instance in `JSONCoders`) rather than `Date.formatted(
+    /// .iso8601...)`. The format-style API silently TRUNCATES the
+    /// fractional component instead of rounding, producing `.001` for
+    /// a Date whose `timeIntervalSince1970` is `.0019999…` — which
+    /// floating-point representation of `.002` tends to look like in
+    /// practice. That truncation collapses chained If-Match values
+    /// for two Mutator calls 1 ms apart and produces spurious 409s
+    /// against the server. `ISO8601DateFormatter` rounds correctly.
     func iso8601MillisString() -> String {
-        // `.iso8601` format style defaults to second precision; explicit
-        // `.time(includingFractionalSeconds: true)` puts the `.SSS`
-        // fragment back so cursor + If-Match round-trips are lossless.
-        formatted(.iso8601.year().month().day()
-            .dateSeparator(.dash)
-            .time(includingFractionalSeconds: true)
-            .timeSeparator(.colon)
-            .timeZone(separator: .omitted))
+        JSONCoders.iso8601MillisFormatter.string(from: self)
     }
 }

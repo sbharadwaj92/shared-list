@@ -336,8 +336,11 @@ private struct MutatorTestEnvironment {
     let uuidGenerator: SequenceUUIDGenerator
 
     func decode<T: Decodable>(_ type: T.Type, json: String) throws -> T {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Use the production decoder so millisecond-fractional dates
+        // round-trip correctly; Foundation's default `.iso8601`
+        // strategy is second-precision and would fail on fractional
+        // input.
+        let decoder = JSONCoders.makeDecoder()
         return try decoder.decode(type, from: Data(json.utf8))
     }
 }
