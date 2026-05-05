@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 6 IN PROGRESS (started 2026-05-05) — Android auth
-**Next action**: hand-write Gradle scaffolding (settings/build/version-catalog), generate Gradle wrapper, then port iOS `KeychainStore` → `SecureStorage` (EncryptedSharedPreferences), `TokenStore` → StateFlow, `APIClient` → Ktor with single-flight 401 refresh, `AuthService`, `AppContainer` via CompositionLocal, root composable + LoginFlow with `StateFlow<UiState>`, JUnit unit tests mirroring the 18 iOS tests, then Android GitHub Actions workflow (unit tests only — emulator deferred to local per PLAN.md L308)
+**Phase**: Phase 6 DONE — ready to begin Phase 7 (backend sync protocol + iOS sync engine in tandem)
+**Next action**: backend `?since=` endpoints for lists/items/list_members, `If-Match` conditional writes (409 on mismatch), idempotent POST via UUID v7 + `ON CONFLICT DO NOTHING`. iOS in tandem: SwiftData `@Model` types + `ModelContainer`, `NWPathMonitor`-backed `NetworkMonitor`, `SyncEngine` with mutation queue + drainer + reconciliation + LWW. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
 **Blockers**: none
 
 ---
@@ -81,20 +81,21 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] iOS CI green on real build (PR #6 — `xcodebuild test` 3m10s on macos-15, `lint + typecheck + test` 43s on ubuntu-latest)
 - [x] `docs/learning/phase-05.md` written
 
-#### Phase 6 — Android auth — IN PROGRESS (started 2026-05-05)
-- [ ] Android Studio project (`SharedList`, minSdk 35, Kotlin 2.x, Compose)
-- [ ] Gradle Kotlin DSL + version catalogs
-- [ ] Detekt + explicit API mode
-- [ ] Custom `EncryptedSharedPreferences` wrapper
-- [ ] `TokenStore` mirroring iOS
-- [ ] `ApiClient` (Ktor) with auth header + 401 single-flight refresh interceptor
-- [ ] `AppContainer` via `CompositionLocal`
-- [ ] Root composable + login flow with `StateFlow<UiState>`
-- [ ] JUnit unit tests
-- [ ] Auth flows working on Emulator + S24 Ultra
-- [ ] Refresh token survives app restart
-- [ ] Android GitHub Actions workflow added; CI green
-- [ ] `docs/learning/phase-06.md` written
+#### Phase 6 — Android auth — DONE 2026-05-05
+- [x] Android Studio project (`SharedList`, minSdk 35, Kotlin 2.x, Compose) — hand-written Gradle scaffolding (no Studio wizard); applicationId `in.santosh_bharadwaj.sharedlist` (underscore because Java packages disallow `-`)
+- [x] Gradle Kotlin DSL + version catalogs (`gradle/libs.versions.toml`)
+- [x] Detekt + explicit API mode — config tuned for Compose idioms (PascalCase composables, package underscores, intentional broad-exception catches in I/O paths with documented rationale)
+- [x] Custom `EncryptedSharedPreferences` wrapper (`SecureStorage` interface + real impl + `InMemorySecureStorage` for tests; mirrors iOS `KeychainStoring`)
+- [x] `TokenStore` mirroring iOS — `StateFlow<Tokens?>` with atomic `update { copy(...) }` semantics; mutex-guarded I/O writes
+- [x] `ApiClient` (Ktor + OkHttp) with auth header + 401 single-flight refresh interceptor — `Mutex` + `CompletableDeferred<Boolean>` two-phase locking; never-clear-inFlight pattern survives any scheduler (CI bug surfaced + fixed)
+- [x] `AppContainer` via `CompositionLocal` — manual DI mirroring iOS, `LocalAppContainer` provider
+- [x] Root composable + login flow with `StateFlow<UiState>` — single immutable `LoginUiState`, stateless `LoginFlowContent` for previews, `RootScreen` switches on token state
+- [x] JUnit unit tests — 15/15 passing (5 InMemorySecureStorage, 5 TokenStore, 5 ApiClient incl. concurrent-401 → single-refresh case)
+- [x] Auth flows working on Emulator (Pixel 9 Pro XL / API 35 / Google APIs) + S24 Ultra (verified 2026-05-05): signup → post-auth → sign out → login → force-quit + relaunch → still authenticated
+- [x] Refresh token survives app restart (verified on both via the force-quit + relaunch test)
+- [x] Android GitHub Actions workflow added (`.github/workflows/android.yml`) — Linux-only `detekt + testDebugUnitTest + assembleDebug`, instrumented tests deferred per PLAN.md L308; CI green on real GitHub runner
+- [x] iOS `RefreshCoordinator` ported back with the same single-flight hardening (entry-with-isFinished pattern); 18/18 iOS tests still passing
+- [x] `docs/learning/phase-06.md` written
 
 ### Sync foundation block (Phases 7–9)
 
@@ -245,6 +246,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-04 — Phase 5 code complete: ios/ scaffolded via XcodeGen (project.yml, .gitignore, README), custom KeychainStore over Security.framework + InMemoryKeychainStore for tests, @MainActor @Observable TokenStore, APIClient with single-flight refresh via RefreshCoordinator actor, AppContainer manual DI, RootView + LoginFlowView with previews, 18 Swift Testing tests passing (5 APIClient incl. concurrent-refresh-collapses-to-one, 5 KeychainStore real, 3 InMemory, 5 TokenStore), .github/workflows/ios.yml on macos-15, docs/learning/phase-05.md written. Backend fix landed in same PR: Zod validation errors now use the standard {error:{code,message,requestId}} envelope via OpenAPIHono defaultHook (validation-hook.ts + 4 unit tests + strengthened integration tests, 49/49 backend tests pass).
 2026-05-05 — Phase 5 verified end-to-end on physical iPhone 15 Pro Max against local backend: signup (201) → post-auth screen, sign out → login screen, log in (200) → post-auth screen, force-quit + relaunch → post-auth screen (refresh-token survives restart). PR #6 opened with three commits (iOS scaffold, backend Zod-envelope fix, login-validator user-enumeration fix); all CI green (backend 43s, iOS 3m10s). Awaiting merge.
 2026-05-05 — Phase 5 DONE: PR #6 rebase-merged (commits cf0701d…1beabcd on main). Final scope: 7 commits — iOS scaffold, two backend fixes (validation envelope + login user-enumeration leak), STATUS bookkeeping, actions/checkout v4→v5 hygiene. 51/51 backend tests, 18/18 iOS tests, both CI workflows green on real GitHub runners.
+2026-05-05 — Phase 6 DONE: Android auth scaffold (hand-written Gradle, no Studio wizard) mirroring iOS Phase 5 layer-by-layer — SecureStorage (EncryptedSharedPreferences) / TokenStore (StateFlow) / Ktor ApiClient with single-flight 401 refresh / DefaultAuthService / AppContainer via CompositionLocal / RootScreen + LoginFlowScreen with StateFlow<LoginUiState>. 15/15 JUnit tests; Detekt clean. Android CI green. The 401-refresh path went through three iterations (defer-clear → never-clear-with-isCompleted → compare-and-retry) before settling on the OkHttp-Authenticator-style "compare access token at request-build time vs current; only call runRefresh if they match" pattern; same fix ported back to iOS so RefreshCoordinator is now scheduler-agnostic on both platforms. Auth flows verified on Pixel 9 Pro XL / API 35 emulator AND physical S24 Ultra (signup → post-auth → sign out → login → force-quit + relaunch → still authenticated). Polish iterations: in-button progress spinner overflow (size(20.dp) instead of height(20.dp)), LoginUiState reset on auth success (privacy — password field stayed populated across sign-out before this). Backend Caddy SAN regenerated to include 10.0.2.2 (emulator alias for host loopback); BACKEND_BASE_URL now BuildConfig-driven with a local.properties override so device-switching is one gitignored line, debug-only network_security_config.xml opts into the user trust store so EncryptedSharedPreferences-installed mkcert CAs are trusted (Android 7+ default rejects user CAs). PR #7 with 12 commits, 3 CI workflows green (Android + backend + iOS).
 ```
 
 ---
