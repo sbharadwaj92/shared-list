@@ -190,7 +190,16 @@ class DrainerIntegrationTest {
             syncEngine = syncEngine,
             monitor = monitor,
         )
-        mutator.attachDrainer(drainer)
+        // Deliberately NOT calling `mutator.attachDrainer(drainer)` —
+        // the Mutator's auto-kick launches into the Drainer's own
+        // `Dispatchers.IO` scope, which races with our explicit
+        // `tick()` from `runTest`'s TestScope. Both serialize through
+        // the Drainer's mutex, but my `tick()` returns early when the
+        // kicked tick is mid-request and the queue assertion runs
+        // before the in-flight drain finishes. Same pattern as
+        // [SyncFuzzTest] — production wires both ends; the
+        // [DrainerTest] suite covers the attached path through unit-
+        // scoped scenarios.
 
         // Refresh suppress noise — keep the variable live so detekt
         // doesn't flag it as unused. RefreshBody import is required
