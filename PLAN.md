@@ -452,6 +452,12 @@ Real life will cause some "Done" criteria to slip. Strict gating ("don't start N
 - Review `KNOWN_DEBT.md` at the start of every phase. Items older than 2 phases without movement → demote to a real GitHub issue and accept they're not getting fixed.
 - This is a learning project — the goal is honest accounting, not heroics.
 
+### Bring-up docs are part of every phase's Done criteria
+
+Each phase ships at least one runnable platform (backend, iOS, or Android). Whatever platforms a phase touched, that platform's README (`backend/README.md`, `ios/README.md`, `android/README.md`) must still describe a working cold-machine setup at the end of the phase. Don't tick a phase as Done until the README of the affected platform has been read top-to-bottom against the changes in the PR — and updated where they drifted. Cold-machine bring-up is the smoke test for documentation; if a hypothetical fresh checkout couldn't follow the README to a working setup, the phase isn't actually Done.
+
+The READMEs are also the **single source of truth** for bring-up commands. Don't repeat them in the root `README.md`, in `CLAUDE.md`, or in commit messages. Three synced copies of bring-up commands always drift; one canonical doc with pointers from elsewhere doesn't.
+
 **Estimated calendar timeline at 20 hrs/week with realistic 30% slack for debugging, distractions, and life:**
 - Phases 1–3 (Foundation): ~3–4 weeks
 - Phases 4–6 (Auth): ~4–6 weeks

@@ -27,17 +27,15 @@ Pre-execution → Phase 1 (repo + tooling bootstrap). See [`STATUS.md`](./STATUS
 
 See [`PLAN.md`](./PLAN.md) for the full rationale.
 
-## Bootstrap (when execution begins)
+## Bring-up
 
-Phases 1–3 are still landing. Real bootstrap commands will be added here as `backend/`, `ios/`, and `android/` come online.
+Per-platform READMEs are the single source of truth. Don't duplicate commands here — they drift.
 
-```bash
-# Phase 2+ (not yet runnable)
-docker compose -f backend/docker-compose.yml up -d
-caddy run --config backend/Caddyfile  # separate terminal
-cd backend && bun run dev
-curl https://Santoshs-MacBook-Pro-48.local/health
-```
+| Component | Doc |
+| --- | --- |
+| Backend (Postgres + Caddy + Bun) | [`backend/README.md`](./backend/README.md) |
+| iOS app | [`ios/README.md`](./ios/README.md) |
+| Android app | [`android/README.md`](./android/README.md) |
 
 ## Scope guard
 

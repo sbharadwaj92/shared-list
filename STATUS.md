@@ -21,6 +21,8 @@ States: `NOT STARTED`, `IN PROGRESS (started YYYY-MM-DD)`, `BLOCKED — <reason>
 
 Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you go. A phase is `DONE` only when all boxes are checked AND `docs/learning/phase-NN.md` is committed (per `LEARNING_PROTOCOL.md`).
 
+**Implicit Done criterion for every phase**: bring-up docs (`backend/README.md`, `ios/README.md`, `android/README.md`) still describe a working cold-machine setup for any platform this phase changed. If the phase touched `docker-compose.yml`, `Caddyfile`, build scripts, env vars, or installed dependencies, the README of the affected platform must be updated in the same PR. Don't tick the phase until you've mentally walked a fresh checkout through the README's bring-up steps and they'd succeed. Doc drift is what made this rule necessary in the first place — see commit history of `backend/README.md` for context.
+
 ### Foundation block (Phases 1–3)
 
 #### Phase 1 — Repo + tooling bootstrap — DONE 2026-05-04

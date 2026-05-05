@@ -125,26 +125,15 @@ Stack-specific (see `PLAN.md` for the full set):
 
 ---
 
-## Useful one-liners (when execution begins)
+## Bring-up commands
 
-These will become real once Phase 2+ exist. Ignore until then:
+Per-platform READMEs are the single source of truth — don't duplicate commands here, they drift.
 
-```bash
-# Start backend dev loop (Phase 2+)
-docker compose -f backend/docker-compose.yml up -d
-caddy run --config backend/Caddyfile  # separate terminal
-cd backend && bun run dev
+- **Backend** (Postgres + Caddy + Bun): [`backend/README.md`](./backend/README.md)
+- **iOS**: [`ios/README.md`](./ios/README.md)
+- **Android**: [`android/README.md`](./android/README.md)
 
-# Health check
-curl https://Santoshs-MacBook-Pro-48.local/health
-
-# Run backend tests
-cd backend && bun test
-
-# Run sync engine tests (Phase 7+ on iOS, Phase 8+ on Android)
-xcodebuild test -scheme SharedListTests
-./gradlew test
-```
+If a bring-up question comes up mid-session, read the relevant per-platform README rather than guessing or pulling from memory. If the README is silent or stale, fix the README in the same change set; don't paper over it with an ad-hoc command.
 
 ---
 
