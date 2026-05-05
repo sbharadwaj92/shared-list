@@ -216,3 +216,116 @@ public enum SyncResource: String, CaseIterable, Sendable {
     case items
     case listMembers = "list_members"
 }
+
+// MARK: - Mutation queue (slice C.2)
+//
+// `MutationQueueEntry` is the durable record of a pending write. The Mutator
+// (see Mutator.swift) appends one row per user action AFTER applying the
+// change to the local SwiftData store; the drainer (slice C.3) reads these
+// rows, sends the corresponding HTTP request, and removes them on success.
+//
+// Why durable in SwiftData (rather than in-memory or in UserDefaults):
+//   - The user expects their offline writes to survive an app force-quit. A
+//     row in the same persistent store as the data it mutates is the only
+//     way to guarantee that — UserDefaults gets cleared independently of
+//     SwiftData migrations, and an in-memory queue evaporates on relaunch.
+//   - Co-locating queue + data in one container lets the Mutator do the
+//     local apply and the queue append in the same `context.save()`. If
+//     either fails the whole transaction rolls back, so we never leave a
+//     local-applied-but-not-queued state (which would silently lose writes
+//     to the backend).
+//
+// Why fields are stringly-typed (`opType`, `payload`, `status`):
+//   - SwiftData supports `RawRepresentable` enums via the `@Attribute`
+//     transformer, but the surface is rough on Swift 6 strict concurrency
+//     — we prefer the explicit string column and convert at use-site.
+//   - The `payload` JSON String is the simplest persistent shape that
+//     can carry the per-opType body (CreateListPayload vs PatchItemPayload
+//     etc). The drainer decodes back to a typed payload before sending.
+//   - `status` defaults to "pending"; slice C.3 will flip it to "inFlight"
+//     while a request is in-flight and "failed" if a non-409 server error
+//     keeps a row from draining (with `lastError` populated for the UI).
+//
+// Why we DON'T model `MutationOpType` as a SwiftData enum:
+//   - SwiftData's enum support requires `Codable + RawRepresentable + String`
+//     and trips on Swift 6 strict-concurrency annotations in some 17.x
+//     toolchains. The string + typed-helper pattern is what we already use
+//     for `SyncResource`, so we stay consistent.
+@Model
+public final class MutationQueueEntry {
+    /// Each queue row has its own UUID v7 — distinct from the `targetId`
+    /// of the resource it mutates. Two queue rows for the same target
+    /// (e.g. quick double-tap on "check item") are valid; the drainer
+    /// processes them in `createdAt` order.
+    @Attribute(.unique) public var id: String
+    /// One of `MutationOpType.rawValue`. We persist the string (not the
+    /// enum) because SwiftData enum migrations are rough on Swift 6 strict
+    /// concurrency; `MutationOpType(rawValue:)` is the only conversion seam.
+    public var opType: String
+    /// The id of the resource being mutated. For create operations this
+    /// equals the new resource's id (which is also the body's `id` field
+    /// for backend idempotency). For patch/delete this is the existing
+    /// resource id.
+    public var targetId: String
+    /// JSON-encoded payload — one of the `*Payload` Codable types defined
+    /// in `Mutator.swift`. The drainer decodes this back into the right
+    /// payload type via `MutationOpType` discrimination.
+    public var payload: String
+    public var createdAt: Date
+    /// One of `MutationStatus.rawValue`. New rows are `"pending"`; the
+    /// drainer (slice C.3) flips through `"inFlight"` and may end at
+    /// `"failed"` if a non-409 error blocks progress.
+    public var status: String
+    /// 0 on insert. The drainer (slice C.3) increments on retryable
+    /// failures; a hard ceiling lets the UI surface "give up" on a row
+    /// rather than spinning forever.
+    public var retryCount: Int
+    /// Last error message shown to UI when `status == "failed"`. Slice C.3
+    /// populates this; nil on insert.
+    public var lastError: String?
+
+    public init(
+        id: String,
+        opType: String,
+        targetId: String,
+        payload: String,
+        createdAt: Date,
+        status: String = MutationStatus.pending.rawValue,
+        retryCount: Int = 0,
+        lastError: String? = nil
+    ) {
+        self.id = id
+        self.opType = opType
+        self.targetId = targetId
+        self.payload = payload
+        self.createdAt = createdAt
+        self.status = status
+        self.retryCount = retryCount
+        self.lastError = lastError
+    }
+}
+
+/// Stable string keys for the queue's `opType` column. Mirrors the six
+/// backend write endpoints (slice C.1). The drainer (slice C.3) switches on
+/// this to pick the request method + path + payload type.
+public enum MutationOpType: String, CaseIterable, Sendable {
+    case createList
+    case renameList
+    case deleteList
+    case createItem
+    case patchItem
+    case deleteItem
+}
+
+/// Lifecycle states for a queue row. Stored as `rawValue` strings.
+public enum MutationStatus: String, CaseIterable, Sendable {
+    /// In the queue, not yet attempted (or retry-eligible after backoff).
+    case pending
+    /// The drainer has picked it up and is mid-request. Slice C.3 will
+    /// guard against picking up an `inFlight` row twice.
+    case inFlight
+    /// The drainer hit a permanent error (non-409, or 409 reconciliation
+    /// failed). The row stays for UI inspection until the user explicitly
+    /// clears it (slice D may add a "retry/discard" UI).
+    case failed
+}
