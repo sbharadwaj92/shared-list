@@ -1,0 +1,19 @@
+# android/local.properties — machine-specific Gradle config. Gitignored.
+#
+# Copy this file to `local.properties` (no `.example` suffix) and uncomment /
+# set the values you want to override. Anything not set falls back to the
+# defaults baked into build.gradle.kts.
+#
+# `sdk.dir` is auto-injected by Android Studio on first sync — you don't
+# normally need to set it by hand. The other entries below are project-
+# specific.
+
+# Backend URL override (Phase 6).
+#
+# Default for debug builds: https://10.0.2.2 (Android Emulator's host
+# loopback alias). Override to https://Santoshs-MacBook-Pro-48.local when
+# testing on a physical device on the same Wi-Fi as your Mac. The mkcert
+# cert SAN covers both addresses, so the same root CA trusts either one.
+#
+# Uncomment to target a physical device:
+#BACKEND_BASE_URL=https://Santoshs-MacBook-Pro-48.local

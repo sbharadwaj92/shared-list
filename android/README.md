@@ -20,24 +20,44 @@ The Gradle wrapper at `android/gradlew` is the source of truth — every develop
 
 ## Running against the local backend
 
-The backend hostname is `Santoshs-MacBook-Pro-48.local`, served via Caddy with mkcert TLS (PLAN.md L130). Android only trusts the mkcert root CA when it's installed on the device.
+The backend is served via Caddy with mkcert TLS (PLAN.md L130). The cert covers two SANs:
+- `Santoshs-MacBook-Pro-48.local` — for physical devices (Bonjour/mDNS resolves it natively over Wi-Fi).
+- `10.0.2.2` — the well-known Android Emulator alias for the host's loopback (the emulator's NAT doesn't run a Bonjour responder, so `.local` doesn't resolve there).
 
-### Physical Samsung Galaxy S24 Ultra
-1. Find the mkcert CA path: `mkcert -CAROOT`
-2. Email or AirDrop `rootCA.pem` to the phone (Android Files / Gmail attachment).
-3. Settings → Security and privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate → pick the file.
-4. The phone resolves `Santoshs-MacBook-Pro-48.local` natively over the same Wi-Fi as the Mac (Bonjour/mDNS Just Works on modern Android).
+### Picking the right URL
 
-### Android Emulator
-The emulator routes traffic through a NAT and **may not resolve `.local` names** because it doesn't run a Bonjour responder. Two options if you hit this:
+The debug build's `BACKEND_BASE_URL` defaults to `https://10.0.2.2` so the emulator just works on a fresh clone. To target a physical device instead, copy `local.properties.example` to `local.properties` and uncomment the override:
 
-**Option A (preferred)**: install the mkcert CA into the emulator's user trust store the same way as a physical device, and rely on mDNS working through the emulator's bridge. Some images do, some don't.
+```
+BACKEND_BASE_URL=https://Santoshs-MacBook-Pro-48.local
+```
 
-**Option B (fallback)**: route to the host loopback alias and bypass mDNS entirely:
-- `10.0.2.2:443` is the well-known emulator alias for the Mac's `localhost` (so the emulator hits Caddy on the host directly).
-- Caddy's mkcert cert needs to also have a SAN for `10.0.2.2` if you go this route. Either regenerate the cert (`mkcert -install Santoshs-MacBook-Pro-48.local 10.0.2.2`) or accept the cert error in the emulator's WebView during a one-time browse.
+`local.properties` is gitignored — every developer can have a different override without touching committed code or CI. Switch back to the emulator by commenting the line out (or deleting the file). Release builds always use the `.local` hostname (irrelevant for v1 since we don't ship release builds).
 
-If Option B is needed, override `AppContainer.DEFAULT_BASE_URL` in a debug-only build variant (TBD — Phase 6 ships with the literal hostname; we'll add the variant once we hit the empirical issue).
+### Trust the mkcert root CA on the device
+
+Android doesn't trust your mkcert root by default. Install it once per device:
+
+```bash
+# Find the mkcert CA path:
+mkcert -CAROOT
+# That gives you a directory containing rootCA.pem.
+
+# Push it to the device's Downloads folder via ADB (works for both
+# emulator and physical):
+adb -s <SERIAL> push "$(mkcert -CAROOT)/rootCA.pem" /sdcard/Download/
+```
+
+Then on the device: **Settings → Security and privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate → "Install anyway" → Browse → Downloads → rootCA.pem**.
+
+Debug builds also opt into the user trust store via `src/debug/res/xml/network_security_config.xml`. Without that opt-in, Android 7+ apps would reject the user-installed CA at TLS handshake time.
+
+### Same Wi-Fi network
+
+For physical devices, the phone and Mac MUST be on the same Wi-Fi network without "AP isolation" / "guest network" restrictions. Sanity check from the phone's browser:
+- Open Chrome → `https://Santoshs-MacBook-Pro-48.local/health` → expect `{"ok":true}` with a green padlock.
+- If the padlock shows a warning, the mkcert root CA isn't trusted — re-do the cert install above.
+- If "DNS_PROBE_FINISHED_NXDOMAIN", the phone can't reach the Mac via Bonjour — check the network setup.
 
 ## Layout
 
