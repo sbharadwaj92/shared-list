@@ -45,11 +45,13 @@ xcodegen generate
 xcodebuild test -scheme SharedList -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
 ```
 
-### Drainer integration tests (env-gated)
+### Drainer integration tests (env-gated, manual)
 
 `SharedListTests/DrainerIntegrationTests.swift` exercises the slice-C.3 drainer against a real running backend (Postgres + Hono). To keep `xcodebuild test` fast for the unit suite, the integration tests skip silently when `BACKEND_URL` is not set in the environment.
 
-To run them locally:
+**These tests do NOT run in CI.** Slice D's first attempt was a workflow that booted Postgres via Colima on a GitHub `macos-15` runner, but GitHub's hosted macOS runners don't support nested virtualization (no `VZ.framework` / no `HVF`), so Colima can't boot its VM, no Docker, no Postgres, no backend. The chain isn't fixable from inside a workflow; it needs either a self-hosted macOS runner, a split-runner tunneling setup, or an embedded-Postgres swap. Treated as a Phase-19-polish open question — the unit suite + the backend's own Testcontainers tests cover the wire contract, so this isn't a coverage hole, just an inability to gate PRs on a real-network round-trip in CI.
+
+**Run them locally before merging anything that changes the wire shape** (backend route changes, DTO field renames, new mutation types). The convention: run the integration suite locally, paste the test summary into the PR body, then merge.
 
 ```bash
 # Terminal 1 — start the backend (this brings up Postgres + Bun via the
@@ -71,8 +73,6 @@ BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
   -only-testing:SharedListTests/DrainerIntegration
 ```
 
-Why env-gated and not Testcontainers-from-Swift: PLAN.md L380 only requires "real backend", not "test self-bootstraps the backend." Booting Bun + Postgres from `Process` calls in Swift adds CI fragility (DOCKER_HOST detection, Bun install path, port collisions, lifecycle on test crash) for no correctness gain — a real backend at a URL is just as "real" whether the test launched it or not. The trade-off is a slightly more involved CI workflow (it boots the backend in a step before running `xcodebuild test`), which is what `.github/workflows/ios-integration.yml` does.
+You can also hit Bun directly over plain HTTP (`http://localhost:3000`) without going through Caddy + mkcert — the iOS Info.plist has scoped `localhost` / `127.0.0.1` ATS exceptions allowing insecure HTTP on those hosts only. Useful when you don't want to set up mkcert on a fresh machine.
 
-The CI workflow runs the backend on **plain HTTP at `localhost:3000`** (no Caddy in CI) — the iOS Info.plist has localhost / 127.0.0.1 ATS exceptions that allow insecure HTTP on those hosts only. That's deliberate: installing mkcert + Caddy on a GitHub macOS runner for one integration test is significantly more setup than a scoped ATS exception, and loopback traffic never leaves the runner so the security weakening is theoretical. Production never points iOS at localhost.
-
-For local runs you have both options: hit the full Caddy-fronted HTTPS URL (`https://Santoshs-MacBook-Pro-48.local`) as shown above, or hit Bun directly over plain HTTP (`http://localhost:3000`) if you don't want to set up mkcert. Both work because of the same ATS exceptions.
+Why env-gated and not Testcontainers-from-Swift: PLAN.md L380 only requires "real backend", not "test self-bootstraps the backend." Booting Bun + Postgres from `Process` calls in Swift adds CI fragility (DOCKER_HOST detection, Bun install path, port collisions, lifecycle on test crash) for no correctness gain — a real backend at a URL is just as "real" whether the test launched it or not.
