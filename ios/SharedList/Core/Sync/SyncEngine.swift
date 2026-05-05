@@ -102,12 +102,36 @@ public final class SyncEngine {
             // throwing here would surface as a misleading "sync failed" in
             // UI. Slice C will add a `lastReconciledAt` indicator to make
             // the offline case visible without throwing.
+            #if DEBUG
+            print("[Sync] reconcile skipped — offline")
+            #endif
             return
         }
 
-        try await reconcileLists()
-        try await reconcileItems()
-        try await reconcileListMembers(selfUserId: userId)
+        let listSummary = try await reconcileLists()
+        let itemSummary = try await reconcileItems()
+        let memberSummary = try await reconcileListMembers(selfUserId: userId)
+
+        #if DEBUG
+        // Slice-B-only sanity print. Strips out of release builds via #if
+        // DEBUG. Slice C will replace this with real structured logging
+        // (Logger.sync) per PLAN.md L298. For now, this is the seam that
+        // lets a manual smoke test see "yes, sync ran and these counts make
+        // sense" without booting a debugger.
+        print(
+            "[Sync] reconciled: "
+            + "\(listSummary.upserts) list(s) (\(listSummary.tombstones) tombstone), "
+            + "\(itemSummary.upserts) item(s) (\(itemSummary.tombstones) tombstone), "
+            + "\(memberSummary.upserts) member(s) (\(memberSummary.tombstones) tombstone)"
+        )
+        #endif
+    }
+
+    /// Per-feed counts surfaced for the slice-B debug print. Tiny struct so
+    /// the print site stays readable without inline tuple unwrapping.
+    private struct FeedSummary {
+        let upserts: Int
+        let tombstones: Int
     }
 
     // MARK: - Per-feed reconcilers
@@ -119,7 +143,7 @@ public final class SyncEngine {
     // specific and pulling it through generics added more friction than the
     // duplication saves at three resources.
 
-    private func reconcileLists() async throws {
+    private func reconcileLists() async throws -> FeedSummary {
         let cursor = readCursor(.lists)
         let path = pathWithSince("/sync/lists", since: cursor)
         let response: SyncListsResponse
@@ -130,18 +154,23 @@ public final class SyncEngine {
         }
 
         let context = container.mainContext
+        var upserts = 0
+        var tombstones = 0
         for row in response.rows {
             if row.deletedAt != nil {
                 try deleteLocalList(id: row.id, in: context)
+                tombstones += 1
             } else {
                 try upsertList(from: row, in: context)
+                upserts += 1
             }
         }
         try writeCursor(.lists, serverTime: response.serverTime, in: context)
         try context.save()
+        return FeedSummary(upserts: upserts, tombstones: tombstones)
     }
 
-    private func reconcileItems() async throws {
+    private func reconcileItems() async throws -> FeedSummary {
         let cursor = readCursor(.items)
         let path = pathWithSince("/sync/items", since: cursor)
         let response: SyncItemsResponse
@@ -152,18 +181,23 @@ public final class SyncEngine {
         }
 
         let context = container.mainContext
+        var upserts = 0
+        var tombstones = 0
         for row in response.rows {
             if row.deletedAt != nil {
                 try deleteLocalItem(id: row.id, in: context)
+                tombstones += 1
             } else {
                 try upsertItem(from: row, in: context)
+                upserts += 1
             }
         }
         try writeCursor(.items, serverTime: response.serverTime, in: context)
         try context.save()
+        return FeedSummary(upserts: upserts, tombstones: tombstones)
     }
 
-    private func reconcileListMembers(selfUserId: String) async throws {
+    private func reconcileListMembers(selfUserId: String) async throws -> FeedSummary {
         let cursor = readCursor(.listMembers)
         let path = pathWithSince("/sync/list_members", since: cursor)
         let response: SyncListMembersResponse
@@ -174,6 +208,8 @@ public final class SyncEngine {
         }
 
         let context = container.mainContext
+        var upserts = 0
+        var tombstones = 0
         for row in response.rows {
             if row.deletedAt != nil {
                 if row.userId == selfUserId {
@@ -182,12 +218,15 @@ public final class SyncEngine {
                 } else {
                     try deleteLocalMember(listId: row.listId, userId: row.userId, in: context)
                 }
+                tombstones += 1
             } else {
                 try upsertMember(from: row, in: context)
+                upserts += 1
             }
         }
         try writeCursor(.listMembers, serverTime: response.serverTime, in: context)
         try context.save()
+        return FeedSummary(upserts: upserts, tombstones: tombstones)
     }
 
     // MARK: - Cursor helpers
