@@ -97,17 +97,20 @@ adb shell am start -n in.santosh_bharadwaj.sharedlist/.app.MainActivity
 To run it before merging anything that changes the wire shape:
 
 ```bash
-# Terminal 1 — start the backend.
+# Terminal 1 — start the backend (Postgres is already running in
+# docker-compose; bun run dev is the only thing that needs starting).
 cd backend
-bun run dev   # or: docker compose up -d
+bun run dev
 
 # Terminal 2 — run the integration tests against it.
 cd android
-BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
+BACKEND_URL=http://localhost:3000 \
   ./gradlew :app:testDebugUnitTest --tests '*DrainerIntegrationTest*'
 ```
 
-The tests sign up a fresh user per run (unique email suffix) so they're isolated from each other. They cover:
+Why `http://localhost:3000` and not `https://Santoshs-MacBook-Pro-48.local`: the JVM's truststore doesn't include the mkcert root CA by default, so HTTPS to the Caddy hostname fails with `PKIX path building failed`. The plain HTTP loopback bypasses TLS — fine for a local unit-test process. (Physical-device integration would need the mkcert CA on the device, which `android/README.md` documents above.)
+
+The tests sign up a fresh user per run (unique email suffix) so they're isolated from each other across runs in the same hour. **The signup endpoint is rate-limited to 3/hour/IP** — if you've burned through that limit (e.g., re-running the suite while debugging), restart `bun run dev` to reset the in-memory limiter. They cover:
 - `createListRoundTripsThroughBackend` — POST → drain → reconcile → canonical row appears locally.
 - `offlineMutateThenReconnectDrains` — Mutator enqueues while offline, drainer is no-op, going online + ticking flushes the queue.
 
