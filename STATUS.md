@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — backend sync protocol, slice A (read side) underway
-**Next action**: slice A — backend `GET /sync/lists`, `/sync/items`, `/sync/list_members` with `?since=<ISO8601>` returning active + tombstoned rows scoped by membership; integration tests; first cut of `backend/docs/sync.md`. Slice B (iOS `@Model` types, `NetworkMonitor`, `SyncEngine` skeleton consuming `?since=`) follows once slice A merges. Slice C (`If-Match` + idempotent POST + iOS mutation queue + LWW) and slice D (tombstone fuzz + learning doc) come after that. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
+**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — slice A code-complete on `phase-07-sync-since` branch, awaiting PR + merge
+**Next action**: open PR for slice A (backend `?since=` read feed). After merge, begin slice B — iOS SwiftData `@Model` types (`UserModel`, `ListModel`, `ItemModel`, `MemberModel`), `ModelContainer` setup, `NetworkMonitor` (`NWPathMonitor`-backed `@Observable`), and a `SyncEngine` skeleton that does *only* full-pull reconciliation against `/sync/lists`/`/sync/items`/`/sync/list_members`. Mutation queue and LWW are slice C. Slice D wraps with tombstone fuzz + `docs/learning/phase-07.md`. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
 **Blockers**: none
 
 ---
@@ -102,7 +102,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 ### Sync foundation block (Phases 7–9)
 
 #### Phase 7 — Backend sync protocol + iOS sync engine in tandem — IN PROGRESS (started 2026-05-05)
-- [ ] Backend: `?since=` endpoints for lists, items, list_members
+- [x] Backend: `?since=` endpoints for lists, items, list_members
 - [ ] Backend: `If-Match` conditional writes (409 on mismatch)
 - [ ] Backend: idempotent `POST` (UUID v7 + `ON CONFLICT DO NOTHING`)
 - [ ] iOS: SwiftData `@Model` types + `ModelContainer`
@@ -110,7 +110,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [ ] iOS: `SyncEngine` with mutation queue, drainer, reconciliation, LWW
 - [ ] Sync engine tests against real Testcontainers Hono server
 - [ ] Full offline-mutate / reconnect / reconcile / tombstone-converge cycle proven
-- [ ] `backend/docs/sync.md` documents the protocol
+- [ ] `backend/docs/sync.md` documents the protocol *(slice A landed: cursor model + read-side endpoints; If-Match + idempotent POST sections pending in slice C)*
 - [ ] `docs/learning/phase-07.md` written
 
 #### Phase 8 — Android persistence + sync engine — NOT STARTED
@@ -249,6 +249,7 @@ One line per session. Append at session end. Format: `YYYY-MM-DD — <what got d
 2026-05-05 — Phase 5 verified end-to-end on physical iPhone 15 Pro Max against local backend: signup (201) → post-auth screen, sign out → login screen, log in (200) → post-auth screen, force-quit + relaunch → post-auth screen (refresh-token survives restart). PR #6 opened with three commits (iOS scaffold, backend Zod-envelope fix, login-validator user-enumeration fix); all CI green (backend 43s, iOS 3m10s). Awaiting merge.
 2026-05-05 — Phase 5 DONE: PR #6 rebase-merged (commits cf0701d…1beabcd on main). Final scope: 7 commits — iOS scaffold, two backend fixes (validation envelope + login user-enumeration leak), STATUS bookkeeping, actions/checkout v4→v5 hygiene. 51/51 backend tests, 18/18 iOS tests, both CI workflows green on real GitHub runners.
 2026-05-05 — Phase 6 DONE: Android auth scaffold (hand-written Gradle, no Studio wizard) mirroring iOS Phase 5 layer-by-layer — SecureStorage (EncryptedSharedPreferences) / TokenStore (StateFlow) / Ktor ApiClient with single-flight 401 refresh / DefaultAuthService / AppContainer via CompositionLocal / RootScreen + LoginFlowScreen with StateFlow<LoginUiState>. 15/15 JUnit tests; Detekt clean. Android CI green. The 401-refresh path went through three iterations (defer-clear → never-clear-with-isCompleted → compare-and-retry) before settling on the OkHttp-Authenticator-style "compare access token at request-build time vs current; only call runRefresh if they match" pattern; same fix ported back to iOS so RefreshCoordinator is now scheduler-agnostic on both platforms. Auth flows verified on Pixel 9 Pro XL / API 35 emulator AND physical S24 Ultra (signup → post-auth → sign out → login → force-quit + relaunch → still authenticated). Polish iterations: in-button progress spinner overflow (size(20.dp) instead of height(20.dp)), LoginUiState reset on auth success (privacy — password field stayed populated across sign-out before this). Backend Caddy SAN regenerated to include 10.0.2.2 (emulator alias for host loopback); BACKEND_BASE_URL now BuildConfig-driven with a local.properties override so device-switching is one gitignored line, debug-only network_security_config.xml opts into the user trust store so EncryptedSharedPreferences-installed mkcert CAs are trusted (Android 7+ default rejects user CAs). PR #7 with 12 commits, 3 CI workflows green (Android + backend + iOS).
+2026-05-05 — Phase 7 slice A code-complete: backend `?since=` read feed for lists/items/list_members. New /sync feature subapp with three OpenAPIHono routes, three DTO Zod schemas, 9 HTTP integration tests pinning the wire contract. New repo helpers (listsSince/itemsSince/membersSince) with 10 unit tests pinning SQL semantics (tombstones flow, membership-scoped, strict `>` cursor, cross-user privacy, post-revocation scoping). Cursor design: server returns `serverTime` (DB now() truncated to ms, captured BEFORE the SELECT) and clients echo it back as `since` — server clock is the only one that defines truth, no client clock skew can leak into the protocol. Found a precision bug under test: pg `now()` is microseconds, JS/Swift/Kotlin Date is ms, so the JS-Date roundtrip lossiness made `>` filtering re-stream the at-the-cursor row; fixed with migration 0002 that swaps the trigger to `date_trunc('milliseconds', now())` AND fires on INSERT (was UPDATE-only) so column defaults can't sneak microseconds in. backend/docs/sync.md drafted with cursor model, three endpoints, recommended reconciliation algorithm, slice C/D placeholders. 70/70 backend tests pass (51 → 70). Two commits: migration 0002 + sync feature. Slice B (iOS @Model + NetworkMonitor + SyncEngine skeleton consuming /sync) follows.
 ```
 
 ---
