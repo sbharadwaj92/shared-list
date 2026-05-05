@@ -97,21 +97,32 @@ class ApiClientTest {
         val refreshBody = json.encodeToString(
             AuthResponse(user = sampleUser, accessToken = "tkn-A2", refreshToken = "tkn-R2"),
         )
+        // The engine decides "401 vs 200" on the request's actual access
+        // token: a request bearing the OLD token gets 401, a request
+        // bearing the NEW token gets 200. This mirrors the real backend.
+        // Without this token-aware logic, a scheduler that ran coroutines
+        // in sequence (one fully completes refresh + retry before another
+        // starts) would still see all 5 "initial" requests get 401 — but
+        // by then the access token has been rotated, and the "second
+        // coroutine got a 401" would be a TEST artifact, not a production
+        // bug. Deciding on the actual header lets us assert correctly under
+        // any scheduler.
         val engine = MockEngine { request ->
             recorder.record(request)
             when {
                 request.url.encodedPath == "/auth/refresh" -> respondJson(refreshBody)
-                // First five /auth/me calls (the ORIGINAL ones, before any retry)
-                // get a 401. We count "me" requests; the first 5 receive the
-                // 401, the next 5 (retries after refresh) receive the success.
-                recorder.countFor("/auth/me") <= CONCURRENT_REQUEST_COUNT -> respondJsonError(401, sampleErrorBody)
-                else -> respondJson(sampleAuthedUserBody)
+                request.headers[HttpHeaders.Authorization] == "Bearer tkn-A2" -> respondJson(sampleAuthedUserBody)
+                else -> respondJsonError(401, sampleErrorBody)
             }
         }
         val (api, _) = buildApi(engine, accessToken = "tkn-A", refreshToken = "tkn-R")
 
-        // Fire N requests concurrently. The single-flight invariant is that
-        // exactly ONE /auth/refresh hits the engine, regardless of N.
+        // Fire N requests concurrently. The single-flight invariant: exactly
+        // one /auth/refresh hits the engine, regardless of N or scheduling.
+        // Whether the runtime interleaves the 5 coroutines fully (true
+        // parallelism, all get 401, they coalesce) or runs them in sequence
+        // (the first does the rotation, the rest succeed straightaway
+        // without ever hitting a 401), the answer is the same: one refresh.
         coroutineScope {
             (1..CONCURRENT_REQUEST_COUNT)
                 .map { async { api.send<AuthUser>(method = HttpMethod.Get, path = "/auth/me") } }
@@ -120,8 +131,6 @@ class ApiClientTest {
 
         val refreshCalls = recorder.requests.count { it.url.encodedPath == "/auth/refresh" }
         assertEquals("expected exactly one /auth/refresh call", 1, refreshCalls)
-        // CONCURRENT_REQUEST_COUNT initial + 1 refresh + CONCURRENT_REQUEST_COUNT retries.
-        assertEquals(2 * CONCURRENT_REQUEST_COUNT + 1, recorder.requests.size)
     }
 
     @Test

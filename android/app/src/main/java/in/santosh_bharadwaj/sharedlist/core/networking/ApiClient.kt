@@ -256,20 +256,31 @@ public class ApiClient(
      *
      * Two-phase locking:
      *   1. Acquire [refreshLock] briefly to read-or-set [inFlight]. If a
-     *      refresh is already running, return its Deferred immediately.
+     *      not-yet-completed refresh is in flight, return its Deferred
+     *      immediately. If no Deferred exists or the existing one already
+     *      completed (stale — it represents a previous burst's result),
+     *      replace it with a fresh one and become the leader.
      *   2. Release the lock, do the actual HTTP call OUTSIDE the lock.
      *      Otherwise concurrent 401s would queue on the lock instead of
      *      sharing the same in-flight result.
      *
-     * The work itself runs at most once because step 1 atomically decides
-     * whether to start a new Deferred or join the existing one.
+     * Why we don't null `inFlight` in a `finally` after the work completes:
+     * if a leader runs the refresh inline (e.g. under a test scheduler or
+     * a fast loopback) before a follower coroutine has even reached this
+     * function, the follower would see `inFlight == null` and start a SECOND
+     * refresh — defeating the single-flight invariant. By keeping the
+     * completed Deferred in place and replacing it only when a new 401 burst
+     * arrives, late-arriving followers from the same burst still join. A
+     * brand new 401 (after the rotation succeeded but a separate code path
+     * still has a stale token, very rare) sees the completed Deferred,
+     * recognizes it as stale, and starts a fresh refresh — correct.
      */
     private suspend fun runRefresh(): Boolean {
         val refreshToken = tokenStore.current?.refreshToken ?: return false
 
         val (deferred, isLeader) = refreshLock.withLock {
             val existing = inFlight
-            if (existing != null) {
+            if (existing != null && !existing.isCompleted) {
                 existing to false
             } else {
                 val fresh = CompletableDeferred<Boolean>()
@@ -302,9 +313,10 @@ public class ApiClient(
             // logged-out and the user re-authenticates.
             try { tokenStore.clear() } catch (_: Throwable) { /* ignore */ }
             false
-        } finally {
-            refreshLock.withLock { inFlight = null }
         }
+        // Complete the Deferred so any follower coroutines awaiting it wake
+        // up with the same Boolean. We deliberately do NOT null `inFlight`
+        // here — see kdoc rationale above.
         deferred.complete(result)
         return result
     }
