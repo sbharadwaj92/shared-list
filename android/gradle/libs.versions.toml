@@ -1,0 +1,135 @@
+# Gradle version catalog — single source of truth for every dependency version.
+#
+# Why a version catalog (over hard-coded versions in build.gradle.kts)?
+#   - One file to bump when upgrading a library; no scavenger hunt across modules.
+#   - Type-safe accessors in Kotlin DSL (`libs.androidx.core` instead of a string).
+#   - Renovate / Dependabot can parse this file directly and propose bumps.
+#
+# Three top-level tables:
+#   [versions]  — version literals (referenced by [libraries] / [plugins])
+#   [libraries] — Maven coordinates + version reference; consumed via `libs.foo`
+#   [plugins]   — Gradle plugins; consumed in `plugins { alias(libs.plugins.foo) }`
+
+[versions]
+# Build tooling. AGP/Kotlin must be compatible — check
+# https://developer.android.com/build/releases/gradle-plugin#android_gradle_plugin_and_android_studio_compatibility
+# before bumping either side. Kotlin 2.0+ is required for the Compose Compiler
+# Gradle plugin (the compiler is no longer bundled with AGP).
+agp = "8.7.3"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
+
+# AndroidX core libs. Compose BOM is the recommended way to pin every
+# `androidx.compose.*` artifact to a mutually-compatible matrix; we don't pick
+# individual Compose versions here.
+coreKtx = "1.15.0"
+lifecycle = "2.8.7"
+activityCompose = "1.9.3"
+composeBom = "2024.11.00"
+navigationCompose = "2.8.4"
+
+# Coroutines — the JVM coroutines lib is a transitive of kotlinx-coroutines-core
+# but pinning explicitly here means a Compose BOM bump can't silently downgrade us.
+coroutines = "1.9.0"
+
+# Ktor Client — HTTP + WebSocket transport. Plan calls out Ktor explicitly. We
+# match this pin against the version available on Maven Central; bumping it is
+# usually safe within a minor (3.0.x) but cross-minor moves get behavioral diffs.
+ktor = "3.0.1"
+
+# kotlinx.serialization for wire-format DTOs (mirrors iOS Codable). The plugin
+# version must match the kotlin version (kotlin-2.0.21 ships its own serialization
+# plugin baked in, so we just reference the runtime).
+kotlinxSerialization = "1.7.3"
+
+# Encrypted storage. androidx.security.crypto is the only first-party option for
+# AES-GCM-backed SharedPreferences; the 1.1.0-alpha line is the latest
+# documented public release (1.0.0 is stable but uses a deprecated KeyStore
+# pattern that emits warnings on minSdk 35). We accept the alpha for v1.
+securityCrypto = "1.1.0-alpha06"
+
+# Static analysis. Detekt is the closest cultural mirror to SwiftLint /
+# warnings-as-errors in the iOS world. Coroutine ruleset catches misuse of
+# structured concurrency (e.g. unscoped GlobalScope.launch).
+detekt = "1.23.7"
+
+# Test stack. JUnit 4 (not 5) because Android's `androidx.test` ecosystem still
+# ships against JUnit 4; using JUnit 5 here means giving up Robolectric and a
+# bunch of androidx-test conveniences. For our pure-JVM unit tests JUnit 4 is fine.
+junit = "4.13.2"
+mockk = "1.13.13"
+turbine = "1.2.0"
+kotlinxCoroutinesTest = "1.9.0"
+
+[libraries]
+# Core AndroidX. core-ktx supplies the `Context.dataStore`-style extension
+# helpers everywhere; lifecycle-runtime-ktx gives us `lifecycleScope` and the
+# `repeatOnLifecycle` helper for collecting flows in composables.
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+# Compose BOM and the artifacts we actually use. The BOM has no `version` here;
+# every `androidx.compose.*` library below uses `version = { strictly = "" }`
+# implicitly via the `platform()` declaration in the app build script.
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
+# Navigation Compose with type-safe @Serializable routes (PLAN.md L252).
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+
+# Ktor client — a single platform engine + features. We pin OkHttp as the
+# engine because (a) it's well-tested on Android, (b) it gives us per-request
+# timeouts via OkHttp interceptors when we want them, and (c) trust-store
+# behavior for mkcert on physical devices is well-documented for OkHttp.
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ktor-client-logging = { group = "io.ktor", name = "ktor-client-logging", version.ref = "ktor" }
+# Mock engine for unit-testing ApiClient without a network. Ships in `ktor-client-mock`.
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
+
+# kotlinx.serialization JSON runtime. The plugin (see [plugins]) does the
+# codegen at compile time; this artifact is the runtime.
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# Coroutines — explicit pin (transitive via Ktor / Compose, but stating it
+# means a BOM bump can't silently downgrade).
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# EncryptedSharedPreferences — Tink-backed AES-GCM, MasterKey via Android Keystore.
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+# Test deps.
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+
+# Detekt formatting ruleset (a separate artifact from the plugin itself).
+detekt-formatting = { group = "io.gitlab.arturbosch.detekt", name = "detekt-formatting", version.ref = "detekt" }
+
+[plugins]
+# AGP — applied to the app module only; root project doesn't apply it directly.
+android-application = { id = "com.android.application", version.ref = "agp" }
+
+# Kotlin Android plugin + Compose Compiler plugin (required for Kotlin 2.0+).
+# `compose-compiler` is the K2-era replacement for the AGP-bundled compiler.
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+
+# Detekt static analysis.
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

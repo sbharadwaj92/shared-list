@@ -1,0 +1,81 @@
+name: android
+
+# Path-filtered triggers — same approach as backend.yml / ios.yml. Editing
+# project docs (PLAN/STATUS/CLAUDE.md) shouldn't burn an Android-build CI
+# minute. We include the wrapper config because a Gradle version bump can
+# break the build even without an `android/**` source diff.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+
+# Cancel an in-flight run when a new commit lands on the same ref. Avoids
+# wasting a runner on a stale commit.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: detekt + unit tests + assemble
+    # Linux is enough for everything we run in CI today: pure-JVM unit tests,
+    # Detekt static analysis, debug APK assembly. Instrumented (emulator)
+    # tests are deferred to local-only per PLAN.md L308 — they need an
+    # Android emulator action which adds 10–15 minutes to a job and produces
+    # flaky results in the cloud.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+
+      # JDK 21 is the LTS that AGP 8.7+ targets. The `temurin` distribution
+      # is the standard for GitHub Actions — fast pull, well-known package.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # actions/setup-gradle handles Gradle binary caching (the dist itself,
+      # which we pin via gradle-wrapper.properties), build cache, and
+      # configuration cache. Significantly faster on subsequent runs of the
+      # same workflow.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Make the wrapper script executable. `actions/checkout` preserves
+      # file modes on POSIX runners, but the gradlew bit can occasionally be
+      # dropped if a contributor commits from Windows; explicit chmod keeps
+      # the workflow robust to that.
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Run the three checks in one Gradle invocation so the daemon and
+      # configuration cache are reused across tasks. Order matters: detekt
+      # is fastest (catches obvious issues without compiling the whole app),
+      # tests next, and assembleDebug only if both passed.
+      - name: Detekt + unit tests + debug APK
+        run: ./gradlew detekt :app:testDebugUnitTest :app:assembleDebug --no-daemon
+
+      # Upload Detekt + JUnit reports as artifacts so a CI failure is
+      # debuggable without re-running. Limited retention (7 days) because
+      # we don't need long-term archiving.
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            android/app/build/reports/detekt/
+            android/app/build/reports/tests/
+            android/app/build/test-results/
+          retention-days: 7

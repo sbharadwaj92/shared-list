@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    User-facing strings live in strings.xml from day one (PLAN.md L319).
+    English only for v1; adding a second language later is a translation pass
+    over the same identifiers, no code changes required.
+-->
+<resources>
+    <string name="app_name">SharedList</string>
+
+    <!-- Login flow strings. Mirrors iOS LoginFlowView copy. -->
+    <string name="auth_mode_login">Log In</string>
+    <string name="auth_mode_signup">Sign Up</string>
+    <string name="auth_field_email">Email</string>
+    <string name="auth_field_password">Password</string>
+    <string name="auth_field_display_name">Display name</string>
+
+    <!-- Post-auth placeholder (replaced by ListsTabView in Phase 13). -->
+    <string name="auth_signed_in_as">Signed in as</string>
+    <string name="auth_sign_out">Sign Out</string>
+
+    <!-- Error templates. The %1$d placeholder is the HTTP status; %2$s is the
+         server-supplied message from the error envelope. -->
+    <string name="error_server">[%1$d] %2$s</string>
+    <string name="error_not_authenticated">Not authenticated.</string>
+    <string name="error_decoding">Couldn\'t read server response: %1$s</string>
+    <string name="error_transport">Network error: %1$s</string>
+    <string name="error_refresh_failed">Session expired. Please log in again.</string>
+    <string name="error_unexpected">Unexpected error: %1$s</string>
+</resources>
