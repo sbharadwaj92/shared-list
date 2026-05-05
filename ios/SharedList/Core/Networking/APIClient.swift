@@ -302,27 +302,75 @@ public struct EmptyResponse: Codable, Sendable, Equatable {
 //     they serialize message handling but allow suspension inside the work.
 //   - Sendable check: the in-flight Task is itself Sendable, so storing it on
 //     an actor and handing references to other tasks is type-safe by construction.
+//
+// **Why we don't clear `inFlight` in a `defer` after the task finishes**: if a
+// leader runs the entire refresh + retry inline before a follower coroutine
+// even reaches `run(_:)` — which is what happens under a fast in-process test
+// scheduler or any deterministic dispatcher — the follower would see
+// `inFlight == nil` and start a SECOND refresh, defeating single-flight.
+// The Android port of this code surfaced exactly this bug under JUnit's test
+// dispatcher on Linux CI; the iOS code has the same theoretical bug but
+// `URLSession.data(for:)` does real I/O so the leader always suspends long
+// enough for followers to see the populated `inFlight`. Hardening this here
+// before Phase 7 (where the sync engine triggers real 401 bursts under
+// arbitrary scheduling) means the property holds under any future runtime
+// behavior, not just today's empirical timing.
+//
+// Replacement strategy: track an explicit `isFinished` alongside the Task.
+// Late followers from the same burst find a not-yet-finished Task and join
+// it. A brand new 401 (rare — would need a freshly-rotated token to
+// immediately yield another 401) sees the finished Task, recognizes it as
+// stale, and starts a fresh one. Swift's Task doesn't expose `isFinished`
+// directly, so we maintain it ourselves via an Entry struct.
 private actor RefreshCoordinator {
-    private var inFlight: Task<Bool, any Error>?
+    private struct Entry {
+        let task: Task<Bool, any Error>
+        // Mutable on the actor's isolation domain only — set to true after
+        // the leader's `task.value` returns.
+        var isFinished: Bool
+    }
+
+    private var inFlight: Entry?
 
     func run(_ work: @Sendable @escaping () async throws -> Bool) async throws -> Bool {
-        if let existing = inFlight {
-            // A refresh is already running. Awaiting the same Task means we
-            // get the same Bool result (and the same thrown error, if any)
-            // without making a second HTTP call.
-            return try await existing.value
+        // Phase 1: decide leader vs follower while holding the actor's
+        // isolation. This is a pure synchronous read/write — no `await`,
+        // so two concurrent calls can't interleave here.
+        if let existing = inFlight, !existing.isFinished {
+            // Phase 2 (follower): release isolation by `await`ing the
+            // existing Task. Multiple followers on the same Task get the
+            // same Bool / same thrown error for free.
+            return try await existing.task.value
         }
+
+        // Either no Task ever ran (`inFlight == nil`) or the previous one
+        // already finished (stale). Start fresh.
         let task = Task<Bool, any Error> {
             try await work()
         }
-        inFlight = task
-        defer {
-            // Clear the reference AFTER the task finishes so the next 401
-            // burst can start a fresh refresh. Doing this in `defer` makes it
-            // also run on cancellation/throw.
-            inFlight = nil
+        inFlight = Entry(task: task, isFinished: false)
+
+        // Phase 2 (leader): do the actual work. Suspending on `task.value`
+        // releases actor isolation; followers can call `run(_:)` and see
+        // the populated, not-yet-finished entry. When the work completes
+        // (or throws), we re-acquire isolation, mark the entry finished —
+        // we deliberately do NOT clear it so a follower that arrived right
+        // before `task.value` returned still sees a populated entry to
+        // await. The next NEW 401 burst will replace the entry above.
+        do {
+            let result = try await task.value
+            markFinished()
+            return result
+        } catch {
+            markFinished()
+            throw error
         }
-        return try await task.value
+    }
+
+    private func markFinished() {
+        guard var entry = inFlight else { return }
+        entry.isFinished = true
+        inFlight = entry
     }
 }
 
