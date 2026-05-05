@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import SwiftUI
 
 // Manual DI container. PLAN.md mandates this approach (vs. property wrappers
@@ -21,6 +22,9 @@ public final class AppContainer {
     public let tokenStore: TokenStore
     public let api: APIClient
     public let auth: any AuthServicing
+    public let networkMonitor: any NetworkMonitoring
+    public let modelContainer: ModelContainer
+    public let syncEngine: SyncEngine
 
     // The base URL is hardcoded for v1 — local backend on the user's Mac at
     // its mDNS hostname. Putting it in code rather than Info.plist keeps the
@@ -35,11 +39,22 @@ public final class AppContainer {
         let tokenStore = TokenStore(keychain: keychain)
         let api = APIClient(baseURL: baseURL, tokenStore: tokenStore)
         let auth = AuthService(api: api, tokenStore: tokenStore)
+        let monitor = NetworkMonitor()
+        let modelContainer = AppContainer.makeModelContainer()
+        let syncEngine = SyncEngine(
+            api: api,
+            container: modelContainer,
+            monitor: monitor,
+            currentUserId: { [weak auth] in auth?.currentUser()?.id }
+        )
 
         self.keychain = keychain
         self.tokenStore = tokenStore
         self.api = api
         self.auth = auth
+        self.networkMonitor = monitor
+        self.modelContainer = modelContainer
+        self.syncEngine = syncEngine
     }
 
     // Test/preview seam: build a container with hand-supplied collaborators.
@@ -50,17 +65,42 @@ public final class AppContainer {
         keychain: any KeychainStoring,
         tokenStore: TokenStore,
         api: APIClient,
-        auth: any AuthServicing
+        auth: any AuthServicing,
+        networkMonitor: any NetworkMonitoring,
+        modelContainer: ModelContainer,
+        syncEngine: SyncEngine
     ) {
         self.keychain = keychain
         self.tokenStore = tokenStore
         self.api = api
         self.auth = auth
+        self.networkMonitor = networkMonitor
+        self.modelContainer = modelContainer
+        self.syncEngine = syncEngine
     }
 
     // Called from SharedListApp on launch to hydrate any persisted session.
     public func bootstrap() async {
         await tokenStore.loadFromKeychain()
+    }
+
+    /// Build the SwiftData container with all `@Model` types this app uses.
+    /// Failure to build the container is a programmer error (schema mismatch,
+    /// disk full, …) — we crash with a clear message rather than continue
+    /// with no persistence and silent data loss. This mirrors how Apple's
+    /// own templates handle `ModelContainer` construction.
+    private static func makeModelContainer() -> ModelContainer {
+        do {
+            return try ModelContainer(
+                for: UserModel.self,
+                ListModel.self,
+                ItemModel.self,
+                MemberModel.self,
+                SyncCursor.self
+            )
+        } catch {
+            fatalError("Failed to construct ModelContainer: \(error)")
+        }
     }
 }
 
