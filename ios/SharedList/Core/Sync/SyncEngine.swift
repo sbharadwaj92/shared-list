@@ -274,12 +274,15 @@ public final class SyncEngine {
         guard let since else { return basePath }
         // ISO8601 with millisecond fraction matches what the backend emits
         // and what its Zod `.datetime({ offset: true })` validator accepts.
-        // The `.iso8601` format style defaults to second precision; the
-        // explicit `time(includingFractionalSeconds: true)` puts the `.SSS`
-        // fragment back so cursor round-trip is lossless.
-        let formatted = since.formatted(.iso8601.year().month().day()
-            .dateSeparator(.dash).time(includingFractionalSeconds: true)
-            .timeSeparator(.colon).timeZone(separator: .omitted))
+        // We use the shared `ISO8601DateFormatter` from `JSONCoders` (via
+        // the Date extension that bridges to it) rather than
+        // `Date.formatted(.iso8601...)`. The format-style API silently
+        // truncates the fractional component instead of rounding,
+        // which collapses chained cursor values for sub-millisecond
+        // floating-point reasons. See the comment on
+        // `Date.iso8601MillisString()` in Drainer.swift for the gory
+        // details.
+        let formatted = since.iso8601MillisString()
         // Build the URL via URLComponents so any characters that legally
         // require percent-encoding in a query value are escaped per
         // RFC 3986. Foundation does NOT aggressively encode `:` (it's a

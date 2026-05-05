@@ -79,16 +79,19 @@ public final class APIClient: Sendable {
         self.session = session
         self.tokenStore = tokenStore
         self.refresher = RefreshCoordinator()
-        // The backend serializes timestamps as ISO 8601 strings; we'll need
-        // .iso8601 once we start decoding `updated_at`. Phase 5 only sees auth
-        // payloads which use plain strings, but configuring it now means
-        // future Phase 7 work doesn't change a global decoder.
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        self.decoder = decoder
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        self.encoder = encoder
+        // Use the shared millisecond-precision ISO8601 strategy. We
+        // can't use `JSONDecoder.DateDecodingStrategy.iso8601` directly
+        // because it wraps an ISO8601DateFormatter with the default
+        // `formatOptions = .withInternetDateTime` — that's
+        // second-precision only and silently drops fractional seconds
+        // both on encode and decode. The backend's `?since=` cursor +
+        // every `updated_at` value is millisecond-precision (Postgres
+        // `date_trunc('milliseconds', now())`), so the round-trip
+        // through Foundation's default would corrupt cursors and
+        // chained If-Match values. See `JSONCoders.swift` for the
+        // shared formatter.
+        self.decoder = JSONCoders.makeDecoder()
+        self.encoder = JSONCoders.makeEncoder()
     }
 
     // Public entry point. The generic `Body: Encodable` covers both nil-body

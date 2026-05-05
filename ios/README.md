@@ -72,3 +72,7 @@ BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
 ```
 
 Why env-gated and not Testcontainers-from-Swift: PLAN.md L380 only requires "real backend", not "test self-bootstraps the backend." Booting Bun + Postgres from `Process` calls in Swift adds CI fragility (DOCKER_HOST detection, Bun install path, port collisions, lifecycle on test crash) for no correctness gain — a real backend at a URL is just as "real" whether the test launched it or not. The trade-off is a slightly more involved CI workflow (it boots the backend in a step before running `xcodebuild test`), which is what `.github/workflows/ios-integration.yml` does.
+
+The CI workflow runs the backend on **plain HTTP at `localhost:3000`** (no Caddy in CI) — the iOS Info.plist has localhost / 127.0.0.1 ATS exceptions that allow insecure HTTP on those hosts only. That's deliberate: installing mkcert + Caddy on a GitHub macOS runner for one integration test is significantly more setup than a scoped ATS exception, and loopback traffic never leaves the runner so the security weakening is theoretical. Production never points iOS at localhost.
+
+For local runs you have both options: hit the full Caddy-fronted HTTPS URL (`https://Santoshs-MacBook-Pro-48.local`) as shown above, or hit Bun directly over plain HTTP (`http://localhost:3000`) if you don't want to set up mkcert. Both work because of the same ATS exceptions.
