@@ -2,6 +2,7 @@
 // configuration lives — SDK levels, applicationId, signing, ProGuard rules,
 // the dependency list, the explicit-API-mode opt-in.
 
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -10,6 +11,35 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Read an optional `BACKEND_BASE_URL` override from `android/local.properties`.
+//
+// Why: the Android Emulator and physical devices need DIFFERENT backend URLs
+// for the same `debug` variant (the emulator's NAT can't resolve .local mDNS,
+// but routes 10.0.2.2 → host loopback; physical devices resolve .local
+// natively over Bonjour). Hardcoding a single literal forces a
+// build.gradle.kts edit (and a commit, if you forget to revert) every time
+// you switch between emulator and phone.
+//
+// Solution: `local.properties` is the standard Gradle place for machine-
+// specific config (it's where `sdk.dir` already lives) and is gitignored. A
+// developer drops a single line in there:
+//
+//     BACKEND_BASE_URL=https://Santoshs-MacBook-Pro-48.local
+//
+// to target the physical device. Omit the line and the build defaults to
+// `https://10.0.2.2` for the emulator. Either way the override never reaches
+// CI or other developers' checkouts.
+//
+// `Properties().load(...)` is the JDK's stdlib parser for the .properties
+// format Java/Gradle have used forever. We catch the missing-file case
+// because a fresh clone won't have local.properties until first sync.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val backendBaseUrlDebug: String = localProperties.getProperty("BACKEND_BASE_URL", "https://10.0.2.2")
+val backendBaseUrlRelease: String = "https://Santoshs-MacBook-Pro-48.local"
 
 android {
     // The `namespace` controls the R class package and the manifest merger.
@@ -38,14 +68,11 @@ android {
             // Keep debug builds unobfuscated and unminified so stack traces
             // are readable. We're not shipping to the Play Store.
             isMinifyEnabled = false
-            // Backend URL override for the Android Emulator. The emulator's
-            // NAT can't resolve the .local mDNS name on the host, but it
-            // routes 10.0.2.2 → host's 127.0.0.1. The Caddy SAN was
-            // regenerated in Phase 6 to include this address, and the
-            // mkcert root CA installed in the emulator trusts it. Physical
-            // devices on the same Wi-Fi can resolve .local natively, so
-            // they get the .local hostname via the release default below.
-            buildConfigField("String", "BACKEND_BASE_URL", "\"https://10.0.2.2\"")
+            // Backend URL: defaults to https://10.0.2.2 (emulator). Override
+            // via `BACKEND_BASE_URL=...` in `android/local.properties` to
+            // target a physical device on the same Wi-Fi. See the
+            // localProperties block at the top of this file for rationale.
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrlDebug\"")
         }
         release {
             // ProGuard / R8 only matter when we ship; for a learning project
@@ -53,7 +80,7 @@ android {
             // build deterministic. Flip this on later if we ever ship to Play.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "BACKEND_BASE_URL", "\"https://Santoshs-MacBook-Pro-48.local\"")
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrlRelease\"")
         }
     }
 
