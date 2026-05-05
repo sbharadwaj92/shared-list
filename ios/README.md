@@ -70,7 +70,7 @@ BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
   xcodebuild test \
   -scheme SharedList \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=latest' \
-  -only-testing:SharedListTests/DrainerIntegration
+  -only-testing:SharedListTests/DrainerIntegrationTests
 ```
 
 You can also hit Bun directly over plain HTTP (`http://localhost:3000`) without going through Caddy + mkcert — the iOS Info.plist has scoped `localhost` / `127.0.0.1` ATS exceptions allowing insecure HTTP on those hosts only. Useful when you don't want to set up mkcert on a fresh machine.
