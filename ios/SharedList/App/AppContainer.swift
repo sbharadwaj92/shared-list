@@ -25,6 +25,7 @@ public final class AppContainer {
     public let networkMonitor: any NetworkMonitoring
     public let modelContainer: ModelContainer
     public let syncEngine: SyncEngine
+    public let mutator: Mutator
 
     // The base URL is hardcoded for v1 — local backend on the user's Mac at
     // its mDNS hostname. Putting it in code rather than Info.plist keeps the
@@ -47,6 +48,7 @@ public final class AppContainer {
             monitor: monitor,
             currentUserId: { [weak auth] in auth?.currentUser()?.id }
         )
+        let mutator = Mutator(container: modelContainer)
 
         self.keychain = keychain
         self.tokenStore = tokenStore
@@ -55,6 +57,7 @@ public final class AppContainer {
         self.networkMonitor = monitor
         self.modelContainer = modelContainer
         self.syncEngine = syncEngine
+        self.mutator = mutator
     }
 
     // Test/preview seam: build a container with hand-supplied collaborators.
@@ -68,7 +71,8 @@ public final class AppContainer {
         auth: any AuthServicing,
         networkMonitor: any NetworkMonitoring,
         modelContainer: ModelContainer,
-        syncEngine: SyncEngine
+        syncEngine: SyncEngine,
+        mutator: Mutator
     ) {
         self.keychain = keychain
         self.tokenStore = tokenStore
@@ -77,6 +81,7 @@ public final class AppContainer {
         self.networkMonitor = networkMonitor
         self.modelContainer = modelContainer
         self.syncEngine = syncEngine
+        self.mutator = mutator
     }
 
     // Called from SharedListApp on launch to hydrate any persisted session.
@@ -96,7 +101,11 @@ public final class AppContainer {
                 ListModel.self,
                 ItemModel.self,
                 MemberModel.self,
-                SyncCursor.self
+                SyncCursor.self,
+                // MutationQueueEntry joined the schema in slice C.2. The order
+                // doesn't matter — SwiftData hashes the type set — but we keep
+                // it last so the diff is small.
+                MutationQueueEntry.self
             )
         } catch {
             fatalError("Failed to construct ModelContainer: \(error)")

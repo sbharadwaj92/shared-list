@@ -349,6 +349,7 @@ private func inMemoryContainer() -> ModelContainer {
             ItemModel.self,
             MemberModel.self,
             SyncCursor.self,
+            MutationQueueEntry.self,
             configurations: configuration
         )
     } catch {
