@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Compose-only Material 3 theme. We use a Theme.Material3.* parent so the
+    activity has Material defaults during the brief moment before Compose's
+    MaterialTheme kicks in; from there, real theming happens in Kotlin
+    (core/ui/Theme.kt). Compose doesn't use XML themes — this file just keeps
+    the system happy at activity construction time.
+-->
+<resources>
+    <style name="Theme.SharedList" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

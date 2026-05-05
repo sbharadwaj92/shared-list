@@ -1,0 +1,116 @@
+# Detekt configuration for the Android module.
+#
+# `buildUponDefaultConfig: true` (in build.gradle.kts) means we inherit Detekt's
+# bundled defaults; this file only overrides what we want different.
+#
+# Strategy: keep the default ruleset's strictness on rules that catch real
+# bugs; loosen rules that fight Compose / kotlinx.serialization / Kotlin-on-
+# Android idioms rather than catching real issues. Each loosening is annotated
+# with WHY.
+
+build:
+  maxIssues: 0
+  weights:
+    complexity: 2
+    LongParameterList: 1
+
+complexity:
+  LongParameterList:
+    # Compose composables routinely take 6–8 parameters (modifiers, state,
+    # callbacks, theme tokens). Bumping to 10 lets composables breathe
+    # without flagging real-world UI code.
+    functionThreshold: 10
+    constructorThreshold: 10
+  CyclomaticComplexMethod:
+    threshold: 20
+  LongMethod:
+    # Compose content composables are naturally long — every visual element
+    # is a tree node and the modifier chains add lines. 60 is too tight for
+    # a real screen; 150 captures actual god-functions without flagging UI.
+    threshold: 150
+  ComplexCondition:
+    # Hydration code that checks "all five required keys are present" reads
+    # cleaner as one short-circuiting && chain than as a helper. Allow up to 6.
+    threshold: 6
+
+style:
+  ReturnCount:
+    max: 4
+  MaxLineLength:
+    maxLineLength: 120
+    excludes: ['**/test/**']
+  WildcardImport:
+    excludeImports:
+      - 'java.util.*'
+  UnusedPrivateMember:
+    ignoreAnnotated:
+      - 'androidx.compose.ui.tooling.preview.Preview'
+      - 'org.junit.Test'
+  MagicNumber:
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+  ThrowsCount:
+    max: 4
+
+# Exception handling rules. We deliberately catch broad Throwable in I/O paths
+# where we want a typed "this failed, fall back to safe state" response —
+# corrupted Keystore, transport errors of any kind, swallowed best-effort
+# logout. Each site documents its rationale in a code comment. Detekt's
+# defaults flag these patterns even when they're correct, so we relax both
+# rules to the intent-checking baseline.
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: false
+  TooGenericExceptionThrown:
+    active: true
+
+# Compose composables MUST be PascalCase (Google's own samples + Compose docs).
+# Detekt's default FunctionNaming rule rejects PascalCase functions; the
+# canonical fix is to disable the rule for `@Composable`-annotated functions.
+naming:
+  FunctionNaming:
+    ignoreAnnotated:
+      - 'androidx.compose.runtime.Composable'
+  PackageNaming:
+    # The applicationId `in.santosh_bharadwaj.sharedlist` requires an
+    # underscore in the package segment — Java/Kotlin packages disallow `-`.
+    # The Detekt default regex disallows underscores entirely.
+    packagePattern: '[a-z][a-zA-Z0-9_]*(\.[a-z][a-zA-Z0-9_]*)*'
+
+# The "formatting" ruleset (a Detekt extension that wraps ktlint) has its own
+# separate set of name/style rules. These need to be loosened in addition to
+# the corresponding Detekt-core rules above.
+formatting:
+  # Disable ktlint's PackageName check — same reason as Detekt's PackageNaming
+  # above (we need the underscore).
+  PackageName:
+    active: false
+  # Disable strict argument-list wrapping. ktlint's rule wants every arg on
+  # its own line as soon as one wraps; this fights idiomatic Compose function
+  # calls where the modifier and slot lambdas read fine on shared lines.
+  ArgumentListWrapping:
+    active: false
+  # Disable the ktlint import-ordering rule. It enforces a strict alphabetical
+  # order with grouping that conflicts with IntelliJ's default Android-friendly
+  # ordering and isn't worth the bikeshed for a learning project.
+  ImportOrdering:
+    active: false
+  Indentation:
+    indentSize: 4
+  MaximumLineLength:
+    maxLineLength: 120
+    excludes: ['**/test/**']
+  NoUnusedImports:
+    active: true
+  Wrapping:
+    active: true

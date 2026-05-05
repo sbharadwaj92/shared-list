@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Manifest for the SharedList Android app.
+
+    What's here for Phase 6 (auth-only):
+      - INTERNET permission so HTTP calls to the local backend work.
+      - Application class declared so we can construct the AppContainer once at
+        process start (mirrors iOS @main App).
+      - Single launcher activity (MainActivity) that hosts the Compose tree.
+
+    What's NOT here yet (added in later phases):
+      - POST_NOTIFICATIONS permission (Phase 16, in-context).
+      - FirebaseMessagingService (Phase 12).
+      - Network security config for mkcert root CA on physical devices.
+        Locally we'll trust the mkcert CA via the OS trust store; physical
+        devices need a network_security_config.xml entry pointing at the
+        embedded cert. Deferred until we actually run on the S24 Ultra and
+        verify the empirical TLS behavior.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required for any HTTP/WS to the backend. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".app.SharedListApplication"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SharedList"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".app.MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SharedList">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
