@@ -174,6 +174,20 @@ public class ApiClient(
      * `@PublishedApi internal` because the inline `send<T>()` above must call
      * it (inline functions can only call same-or-higher-visibility members).
      * Performs a single request with the 401 → refresh → retry policy.
+     *
+     * On a 401, we capture the access token that was current when this
+     * request was built and compare it to the current token *now*. If they
+     * differ, another coroutine already rotated the tokens (single-flight
+     * leader from the same burst): we retry without triggering a new
+     * refresh. If they're the same, the token is genuinely stale and we
+     * call [runRefresh] to coordinate one rotation.
+     *
+     * This is the canonical "compare-and-retry" pattern (OkHttp's
+     * `Authenticator` interface uses the same shape). Handles both
+     * concurrent bursts (5 coroutines hit 401 simultaneously, ONE refresh)
+     * AND scheduler-fairness edge cases (a coroutine that arrives at a
+     * 401 *after* the leader's refresh completed; it retries with the
+     * already-rotated token, no second refresh needed).
      */
     @PublishedApi
     internal suspend fun perform(
@@ -182,11 +196,17 @@ public class ApiClient(
         body: Any?,
         requiresAuth: Boolean,
     ): HttpResponse {
+        val accessTokenAtSend = if (requiresAuth) tokenStore.current?.accessToken else null
         val initial = sendOnce(method, path, body, requiresAuth)
         if (initial.status == HttpStatusCode.Unauthorized && requiresAuth) {
-            val refreshed = runRefresh()
-            if (!refreshed) throw ApiError.RefreshFailed
-            // Retry once with the rotated access token.
+            val tokenChangedByAnotherCoroutine =
+                accessTokenAtSend != null && tokenStore.current?.accessToken != accessTokenAtSend
+            if (!tokenChangedByAnotherCoroutine) {
+                val refreshed = runRefresh()
+                if (!refreshed) throw ApiError.RefreshFailed
+            }
+            // Retry once with whatever token is now current (either rotated
+            // by us or already rotated by another coroutine).
             val retried = sendOnce(method, path, body, requiresAuth)
             return validate(retried)
         }
@@ -250,37 +270,33 @@ public class ApiClient(
     }
 
     /**
-     * Coordinated refresh — the heart of the single-flight pattern. Returns
-     * `true` if the refresh succeeded and tokens were rotated, `false` if
-     * there was no refresh token to use.
+     * Coordinated refresh — the single-flight piece. Returns `true` if the
+     * refresh succeeded and tokens were rotated, `false` if there was no
+     * refresh token to use.
      *
      * Two-phase locking:
      *   1. Acquire [refreshLock] briefly to read-or-set [inFlight]. If a
-     *      not-yet-completed refresh is in flight, return its Deferred
-     *      immediately. If no Deferred exists or the existing one already
-     *      completed (stale — it represents a previous burst's result),
-     *      replace it with a fresh one and become the leader.
-     *   2. Release the lock, do the actual HTTP call OUTSIDE the lock.
-     *      Otherwise concurrent 401s would queue on the lock instead of
-     *      sharing the same in-flight result.
+     *      refresh is currently in flight, return its Deferred. Otherwise
+     *      create a new Deferred, store it, become the leader.
+     *   2. Release the lock, do the actual HTTP call OUTSIDE the lock so
+     *      followers can share the same Deferred.
      *
-     * Why we don't null `inFlight` in a `finally` after the work completes:
-     * if a leader runs the refresh inline (e.g. under a test scheduler or
-     * a fast loopback) before a follower coroutine has even reached this
-     * function, the follower would see `inFlight == null` and start a SECOND
-     * refresh — defeating the single-flight invariant. By keeping the
-     * completed Deferred in place and replacing it only when a new 401 burst
-     * arrives, late-arriving followers from the same burst still join. A
-     * brand new 401 (after the rotation succeeded but a separate code path
-     * still has a stale token, very rare) sees the completed Deferred,
-     * recognizes it as stale, and starts a fresh refresh — correct.
+     * Why we can safely null `inFlight` after completion: callers of
+     * [runRefresh] are guarded by the compare-and-retry check in
+     * [perform] — a coroutine only calls runRefresh when its access token
+     * matches the current store token. If a leader has already finished
+     * and rotated the tokens by the time a follower arrives at perform,
+     * the compare-and-retry sees the difference and skips runRefresh
+     * entirely. So the only callers of runRefresh are members of an
+     * actually-concurrent burst, where the in-flight Deferred is the
+     * right thing to join.
      */
     private suspend fun runRefresh(): Boolean {
         val refreshToken = tokenStore.current?.refreshToken ?: return false
 
         val (deferred, isLeader) = refreshLock.withLock {
             val existing = inFlight
-            if (existing != null && !existing.isCompleted) {
+            if (existing != null) {
                 existing to false
             } else {
                 val fresh = CompletableDeferred<Boolean>()
@@ -313,10 +329,12 @@ public class ApiClient(
             // logged-out and the user re-authenticates.
             try { tokenStore.clear() } catch (_: Throwable) { /* ignore */ }
             false
+        } finally {
+            // Clear the reference so a future genuinely-stale burst can
+            // start a fresh refresh. Safe under the perform() compare-and-
+            // retry guard: see runRefresh kdoc above.
+            refreshLock.withLock { inFlight = null }
         }
-        // Complete the Deferred so any follower coroutines awaiting it wake
-        // up with the same Boolean. We deliberately do NOT null `inFlight`
-        // here — see kdoc rationale above.
         deferred.complete(result)
         return result
     }
