@@ -9,16 +9,14 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: **Phase 8 DONE 2026-05-05** (PR #14 rebase-merged: commits 66f7921 + 86f1a3b + 567b7aa on main); ready to start Phase 9
-**Next action**: begin **Phase 9** — cross-platform sync verification. Both platforms now have the same wire-protocol contract (frozen at Phase 7 slice C.1) and the same offline-mutate / reconcile / drainer-with-409 surface. Phase 9's goal is a test harness that drives BOTH iOS and Android engines against the same backend and asserts the four PLAN.md scenarios converge consistently:
-- (a) A creates → B sees after `?since=`
-- (b) A offline-mutates → reconnects → B sees result
-- (c) Concurrent edits resolve LWW consistently across platforms
-- (d) Tombstones flow correctly during 90-day window
+**Phase**: **Phase 9 IN PROGRESS (started 2026-05-05)** — cross-platform sync verification
+**Next action**: continue Phase 9 implementation on `phase-09-cross-platform-sync` branch. Decisions made up front:
+- **Harness shape**: Option 2 — drive both platforms' env-gated test suites against one shared backend instance via a shell harness. Each platform gains a `CrossPlatformConvergenceTest{s}` suite gated on `BACKEND_URL` + `CROSS_PLATFORM_USER_EMAIL` + `CROSS_PLATFORM_USER_PASSWORD` + `CROSS_PLATFORM_ROLE` env vars; the harness coordinates A/B handoffs through backend HTTP state. Option 3 (fewer mixed-platform passes) stays as a fallback if Option 2 turns out painfully slow.
+- **Multi-user vs same-user**: same user signed in on two devices (PLAN.md scenarios a–d don't require *different* users; multi-user / sharing-flow testing belongs to Phase 15 where the invite/accept routes land).
+- **Backend rate limits bumped before harness work**: signup 3/hour → 10/hour, login 5/min → 30/min, refresh unchanged. Updates land in `rate-limits.ts`, `rate-limits.test.ts`, and PLAN.md L81 in lockstep (PLAN.md is the source of truth on the numbers).
+- **Single PR for the whole phase** (no slicing).
 
-The harness shape is open. Two reasonable starting points: (1) script bash that drives both platforms' env-gated integration test suites against a single backend instance, asserting cross-platform via shell exit codes + jq on JSON results — minimal infra, leans on the existing per-platform test suites; (2) a small standalone Bun-or-shell driver that POSTs as user A via the backend's HTTP API directly, then runs both platforms' read-side reconciliation against it. PLAN.md L391 doesn't pick one; suggest discussing with owner before coding.
-
-`ios/docs/sync.md` and `android/docs/sync.md` get written this phase too — they document each platform's sync engine for the architect-style reader who wants to understand "how does this work end-to-end" without reading 8 source files.
+Order of operations: (1) backend rate-limit bump + tests + PLAN.md update; (2) iOS `CrossPlatformConvergenceTests` with all 8 test methods (4 scenarios × 2 roles); (3) Android mirror; (4) `scripts/cross-platform-sync.sh` shell harness; (5) `ios/docs/sync.md` + `android/docs/sync.md` + `docs/learning/phase-09.md`.
 **Blockers**: none
 
 ---
@@ -129,7 +127,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 - [x] Same env-gated backend pattern *(`DrainerIntegrationTest` uses `assumeTrue(BACKEND_URL != null)`; CI deferred per Phase 19 polish — same convention as iOS)*
 - [x] `docs/learning/phase-08.md` written
 
-#### Phase 9 — Cross-platform sync verification — NOT STARTED
+#### Phase 9 — Cross-platform sync verification — IN PROGRESS (started 2026-05-05)
 - [ ] Test harness drives both engines against real backend
 - [ ] Scenario (a): A creates → B sees after `?since=`
 - [ ] Scenario (b): A offline-mutates → reconnects → B sees result
