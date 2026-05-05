@@ -2,10 +2,19 @@ import { rateLimiter } from 'hono-rate-limiter';
 
 // Per-endpoint rate limits, in-memory.
 //
-// PLAN.md numbers (kept here, not duplicated in routes.ts so future tuning
-// is one file):
-//   - login   5 req / minute / IP
-//   - signup  3 req / hour / IP
+// PLAN.md L81 numbers (kept here, not duplicated in routes.ts so future
+// tuning is one file). The numbers are deliberately *generous* for a
+// learning-project local-LAN deployment: the goal is to demonstrate the
+// pattern (request → 429 → retry-after) without making local dev iteration
+// painful. A production deployment would tighten these.
+//   - login   30 req / minute / IP   (was 5/min — bumped Phase 9 because
+//                                    the cross-platform harness boots ~8
+//                                    test processes per run, each of
+//                                    which signs in once or twice)
+//   - signup  10 req / hour / IP     (was 3/hour — bumped Phase 9 for
+//                                    the same reason; signups are still
+//                                    the tightest endpoint because each
+//                                    one creates a real DB row)
 //   - refresh 60 req / minute / IP  (single-flight client should keep this
 //                                    well under, but the limit catches a
 //                                    misbehaving client cheaply.)
@@ -39,13 +48,13 @@ const HOUR_MS = 60 * MINUTE_MS;
 export const rateLimits = {
   login: rateLimiter({
     windowMs: MINUTE_MS,
-    limit: 5,
+    limit: 30,
     keyGenerator: ipKey,
     standardHeaders: 'draft-7',
   }),
   signup: rateLimiter({
     windowMs: HOUR_MS,
-    limit: 3,
+    limit: 10,
     keyGenerator: ipKey,
     standardHeaders: 'draft-7',
   }),
