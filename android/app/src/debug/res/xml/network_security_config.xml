@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-only Network Security Config.
+
+    Why this exists: starting in Android 7 (API 24), apps do NOT trust
+    user-installed CA certificates by default — only system CAs. The mkcert
+    root CA installed via Settings → Security → Install a certificate lands
+    in the user trust store, so without an explicit opt-in, OkHttp/Ktor
+    will report:
+        java.security.cert.CertPathValidatorException:
+        Trust anchor for certification path not found
+
+    The fix is to declare a `<base-config>` that adds the `user` certificate
+    source for debug builds. Release builds inherit Android's strict default
+    (system CAs only) — so this file ONLY exists in `src/debug/`, never in
+    main or release. AGP merges debug → main → release, so the manifest
+    `android:networkSecurityConfig` reference resolves to this file in
+    debug builds and to nothing (default policy) in release builds.
+
+    Reference: https://developer.android.com/training/articles/security-config
+
+    Future hardening (post-Phase 6): replace `<certificates src="user" />`
+    with an explicit `<certificates src="@raw/mkcert_root" />` referencing
+    a checked-in copy of mkcert's rootCA.pem under res/raw/. That avoids
+    depending on the user trust store at all and is more robust to
+    "I forgot to install the cert" mistakes. Skipped for now because the
+    rootCA.pem is machine-specific (different per developer's mkcert install)
+    and committing one developer's cert would be confusing.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- System CAs first (production trust store). -->
+            <certificates src="system" />
+            <!-- Then user-installed CAs (mkcert root, etc). -->
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
