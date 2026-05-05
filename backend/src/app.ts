@@ -2,6 +2,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { type BuildAuthRoutesOptions, buildAuthRoutes } from './features/auth/routes.ts';
 import { healthRoutes } from './features/health/routes.ts';
+import { buildSyncRoutes } from './features/sync/routes.ts';
 import type { Database } from './infra/db.ts';
 import { onError } from './infra/middleware/error.ts';
 import { type RequestIdVariables, requestId } from './infra/middleware/request-id.ts';
@@ -52,6 +53,7 @@ export const buildApp = (db: Database, opts: BuildAppOptions = {}): OpenAPIHono<
 
   app.route('/health', healthRoutes);
   app.route('/auth', buildAuthRoutes(db, opts.auth));
+  app.route('/sync', buildSyncRoutes(db));
 
   // OpenAPI spec endpoint. The `doc` method walks the registered routes,
   // generates an OpenAPI 3.1 document, and serves it as JSON. Anything that
