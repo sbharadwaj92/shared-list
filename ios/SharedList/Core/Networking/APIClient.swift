@@ -67,6 +67,13 @@ public final class APIClient: Sendable {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    /// JSON decoder configured to match the backend's wire format
+    /// (ISO8601 timestamps). Exposed so callers that go through the raw
+    /// path (`sendRaw`) decode response bodies with the same settings as
+    /// `send`. Not for general use — most call sites should use `send`
+    /// or `sendNoContent`.
+    public var responseDecoder: JSONDecoder { decoder }
+
     public init(baseURL: URL, session: any HTTPRequesting = URLSession.shared, tokenStore: TokenStore) {
         self.baseURL = baseURL
         self.session = session
@@ -121,6 +128,36 @@ public final class APIClient: Sendable {
         if !(200..<300).contains(http.statusCode) {
             throw Self.decodeErrorEnvelope(data: data, status: http.statusCode)
         }
+    }
+
+    /// Raw send variant: returns `(data, status, headers)` without
+    /// throwing on non-2xx. The Drainer (slice C.3) needs this because
+    /// 409 is a valid path-and-data response (the body carries
+    /// `latest: …DTO` for the merge), not an error to surface up. The
+    /// 401 single-flight-refresh + extra-header injection (`If-Match`)
+    /// is shared with `send`/`sendNoContent`, only the response handling
+    /// differs — caller switches on status itself.
+    public func sendRaw<Body: Encodable & Sendable>(
+        method: String,
+        path: String,
+        body: Body? = nil,
+        extraHeaders: [String: String] = [:],
+        requiresAuth: Bool = true
+    ) async throws -> (data: Data, status: Int) {
+        var request = try await buildRequest(
+            method: method,
+            path: path,
+            body: body,
+            requiresAuth: requiresAuth
+        )
+        for (k, v) in extraHeaders {
+            request.setValue(v, forHTTPHeaderField: k)
+        }
+        let (data, response) = try await performWithRefresh(request: request, requiresAuth: requiresAuth)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.transport(message: "non-HTTP response")
+        }
+        return (data, http.statusCode)
     }
 
     // MARK: - Internals

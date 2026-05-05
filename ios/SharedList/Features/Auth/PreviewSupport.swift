@@ -40,6 +40,12 @@ enum PreviewSupport {
             currentUserId: { [weak auth] in auth?.currentUser()?.id }
         )
         let mutator = Mutator(container: modelContainer)
+        let drainer = Drainer(
+            api: api,
+            container: modelContainer,
+            monitor: monitor,
+            syncEngine: syncEngine
+        )
         if seedSession {
             Task { @MainActor in
                 try? await tokenStore.save(.init(
@@ -57,7 +63,8 @@ enum PreviewSupport {
             networkMonitor: monitor,
             modelContainer: modelContainer,
             syncEngine: syncEngine,
-            mutator: mutator
+            mutator: mutator,
+            drainer: drainer
         )
     }
 

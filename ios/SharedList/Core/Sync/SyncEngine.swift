@@ -161,7 +161,7 @@ public final class SyncEngine {
                 try deleteLocalList(id: row.id, in: context)
                 tombstones += 1
             } else {
-                try upsertList(from: row, in: context)
+                try upsertListLWW(from: row, in: context)
                 upserts += 1
             }
         }
@@ -188,7 +188,7 @@ public final class SyncEngine {
                 try deleteLocalItem(id: row.id, in: context)
                 tombstones += 1
             } else {
-                try upsertItem(from: row, in: context)
+                try upsertItemLWW(from: row, in: context)
                 upserts += 1
             }
         }
@@ -302,7 +302,15 @@ public final class SyncEngine {
 
     // MARK: - Upsert + tombstone helpers
 
-    private func upsertList(from dto: ListDTO, in context: ModelContext) throws {
+    // The slice-C.3 Drainer also calls this helper — when a 409 response
+    // arrives with `latest: …DTO`, we need to apply that single row
+    // through the same LWW guard the reconciler uses. Marked `internal`
+    // (default access) rather than `private` so the Drainer extension at
+    // the bottom of `Drainer.swift` can forward to it without bypassing
+    // the LWW invariant. Feature code outside the Sync module still
+    // can't call it directly — module access keeps the "go through
+    // reconcile()" boundary intact.
+    func upsertListLWW(from dto: ListDTO, in context: ModelContext) throws {
         let id = dto.id
         var descriptor = FetchDescriptor<ListModel>(
             predicate: #Predicate { $0.id == id }
@@ -348,7 +356,9 @@ public final class SyncEngine {
         // through helpers that filter `deletedAt == nil`.
     }
 
-    private func upsertItem(from dto: ItemDTO, in context: ModelContext) throws {
+    // Same `internal` rationale as `upsertListLWW` above — drainer 409
+    // path needs the LWW upsert.
+    func upsertItemLWW(from dto: ItemDTO, in context: ModelContext) throws {
         let id = dto.id
         var descriptor = FetchDescriptor<ItemModel>(
             predicate: #Predicate { $0.id == id }
