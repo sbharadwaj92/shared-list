@@ -164,7 +164,8 @@ internal val ButtonSpinnerStroke: Dp = 2.dp
 @Preview(name = "Logged out", showBackground = true)
 @Composable
 private fun RootScreenLoggedOutPreview() {
-    val container = remember { PreviewSupport.loggedOutContainer() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val container = remember { PreviewSupport.loggedOutContainer(context) }
     androidx.compose.runtime.CompositionLocalProvider(LocalAppContainer provides container) {
         SharedListTheme(dynamicColor = false) {
             RootScreen()
@@ -175,7 +176,8 @@ private fun RootScreenLoggedOutPreview() {
 @Preview(name = "Logged in", showBackground = true)
 @Composable
 private fun RootScreenLoggedInPreview() {
-    val container = remember { PreviewSupport.loggedInContainer() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val container = remember { PreviewSupport.loggedInContainer(context) }
     androidx.compose.runtime.CompositionLocalProvider(LocalAppContainer provides container) {
         SharedListTheme(dynamicColor = false) {
             RootScreen()

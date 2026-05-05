@@ -55,6 +55,16 @@ public sealed class ApiError(message: String, cause: Throwable? = null) : Except
 }
 
 /**
+ * Raw HTTP response surfaced by [ApiClient.sendRaw]. The Drainer reads
+ * `status` to branch on success/conflict/auth failure shapes and decodes
+ * `body` lazily via `JsonCoders.Json.decodeFromString` only when needed.
+ */
+public data class RawResponse(
+    public val status: Int,
+    public val body: String,
+)
+
+/**
  * Single point of network access for the Android app. Mirrors iOS APIClient.
  *
  * Responsibilities, in order of importance:
@@ -107,14 +117,16 @@ public class ApiClient(
     private val ioScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
 
+    /**
+     * Single shared [Json] instance — the same configuration used by the
+     * sync stack (Mutator queue payloads, Drainer payload decode). Pulled
+     * from [JsonCoders] so adding a new sync field never requires
+     * touching this file. Phase 7 introduced fractional-millisecond
+     * Instant fields; the explicit serializer in [JsonCoders] handles
+     * those across all DTOs.
+     */
     @PublishedApi
-    internal val json: Json = Json {
-        ignoreUnknownKeys = true
-        // The backend ships ISO-8601 timestamps for fields we'll meet in
-        // Phase 7 (`updated_at` etc). Configuring lenient handling now means
-        // adding sync DTOs later doesn't require touching the global parser.
-        explicitNulls = false
-    }
+    internal val json: Json = JsonCoders.Json
 
     private val client: HttpClient = HttpClient(engine) {
         install(ContentNegotiation) {
@@ -171,6 +183,59 @@ public class ApiClient(
     }
 
     /**
+     * Raw HTTP send used by the sync Drainer. Returns the response bytes
+     * and status code WITHOUT throwing on non-2xx — the drainer needs
+     * status-code-aware branching (200 → remove queue entry, 404 → ditto,
+     * 409 → decode `latest` and reconcile, etc.) so the throws-on-non-2xx
+     * pattern of [send] doesn't fit.
+     *
+     * Still goes through the 401 → single-flight refresh → retry path.
+     * Authentication failure surfaces as `ApiError.RefreshFailed`; transport
+     * failures (DNS, TLS, connection) surface as `ApiError.Transport`. Any
+     * non-2xx status that the refresh path doesn't intercept is returned
+     * verbatim so the caller can switch on it.
+     *
+     * `extraHeaders` exists for the `If-Match` flow (slice C.1 conditional
+     * writes). Format the value with the same `Instant` serializer the
+     * payload bodies use, so a value the Mutator wrote round-trips
+     * losslessly through the queue and onto the wire.
+     */
+    public suspend fun sendRaw(
+        method: HttpMethod,
+        path: String,
+        body: Any? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
+        requiresAuth: Boolean = true,
+    ): RawResponse {
+        val accessTokenAtSend = if (requiresAuth) tokenStore.current?.accessToken else null
+        val initial = sendOnce(method, path, body, requiresAuth, extraHeaders)
+        val effective = if (initial.status == HttpStatusCode.Unauthorized && requiresAuth) {
+            val tokenChangedByAnotherCoroutine =
+                accessTokenAtSend != null && tokenStore.current?.accessToken != accessTokenAtSend
+            if (!tokenChangedByAnotherCoroutine) {
+                val refreshed = runRefresh()
+                if (!refreshed) throw ApiError.RefreshFailed
+            }
+            sendOnce(method, path, body, requiresAuth, extraHeaders)
+        } else {
+            initial
+        }
+        // Read body up-front so the caller doesn't have to deal with
+        // Ktor's lazy-stream semantics (and so a discarded body still
+        // releases the underlying connection).
+        val bytes = try {
+            effective.bodyAsText()
+        } catch (_: Throwable) {
+            ""
+        }
+        return RawResponse(status = effective.status.value, body = bytes)
+    }
+
+    /** Decode JSON from a [RawResponse.body] string using the shared [json]. */
+    @PublishedApi
+    internal val responseJson: Json get() = json
+
+    /**
      * `@PublishedApi internal` because the inline `send<T>()` above must call
      * it (inline functions can only call same-or-higher-visibility members).
      * Performs a single request with the 401 → refresh → retry policy.
@@ -218,6 +283,7 @@ public class ApiClient(
         path: String,
         body: Any?,
         requiresAuth: Boolean,
+        extraHeaders: Map<String, String> = emptyMap(),
     ): HttpResponse {
         return try {
             client.request {
@@ -227,6 +293,11 @@ public class ApiClient(
                 if (requiresAuth) {
                     val token = tokenStore.current?.accessToken ?: throw ApiError.NotAuthenticated
                     headers { append(HttpHeaders.Authorization, "Bearer $token") }
+                }
+                if (extraHeaders.isNotEmpty()) {
+                    headers {
+                        extraHeaders.forEach { (name, value) -> append(name, value) }
+                    }
                 }
                 if (body != null) {
                     setBody(body)
