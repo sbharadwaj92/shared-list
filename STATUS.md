@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 6 DONE — ready to begin Phase 7 (backend sync protocol + iOS sync engine in tandem)
-**Next action**: backend `?since=` endpoints for lists/items/list_members, `If-Match` conditional writes (409 on mismatch), idempotent POST via UUID v7 + `ON CONFLICT DO NOTHING`. iOS in tandem: SwiftData `@Model` types + `ModelContainer`, `NWPathMonitor`-backed `NetworkMonitor`, `SyncEngine` with mutation queue + drainer + reconciliation + LWW. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
+**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — backend sync protocol, slice A (read side) underway
+**Next action**: slice A — backend `GET /sync/lists`, `/sync/items`, `/sync/list_members` with `?since=<ISO8601>` returning active + tombstoned rows scoped by membership; integration tests; first cut of `backend/docs/sync.md`. Slice B (iOS `@Model` types, `NetworkMonitor`, `SyncEngine` skeleton consuming `?since=`) follows once slice A merges. Slice C (`If-Match` + idempotent POST + iOS mutation queue + LWW) and slice D (tombstone fuzz + learning doc) come after that. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
 **Blockers**: none
 
 ---
@@ -101,7 +101,7 @@ Checkboxes mirror each phase's "Done" criteria from `PLAN.md`. Tick them as you 
 
 ### Sync foundation block (Phases 7–9)
 
-#### Phase 7 — Backend sync protocol + iOS sync engine in tandem — NOT STARTED
+#### Phase 7 — Backend sync protocol + iOS sync engine in tandem — IN PROGRESS (started 2026-05-05)
 - [ ] Backend: `?since=` endpoints for lists, items, list_members
 - [ ] Backend: `If-Match` conditional writes (409 on mismatch)
 - [ ] Backend: idempotent `POST` (UUID v7 + `ON CONFLICT DO NOTHING`)
