@@ -16,6 +16,7 @@ struct SharedListApp: App {
         WindowGroup {
             RootView()
                 .environment(\.appContainer, container)
+                .modelContainer(container.modelContainer)
                 .task {
                     // `.task` on the RootView is run-once on appear. Doing
                     // bootstrap here (rather than in init) keeps the App
@@ -23,6 +24,15 @@ struct SharedListApp: App {
                     // and avoids subtle ordering issues with state setup.
                     if !didBootstrap {
                         await container.bootstrap()
+                        // Slice B: kick off an initial sync if we have a
+                        // signed-in session. The reconcile is best-effort —
+                        // a thrown error here just means we'll try again on
+                        // the next foreground tick. We deliberately don't
+                        // surface the error in UI yet (slice C will add a
+                        // "last synced" indicator).
+                        if container.auth.currentUser() != nil {
+                            try? await container.syncEngine.reconcile()
+                        }
                         didBootstrap = true
                     }
                 }

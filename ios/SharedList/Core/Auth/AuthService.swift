@@ -17,7 +17,7 @@ import Foundation
 // taps; the await hop is free in practice.
 
 @MainActor
-public protocol AuthServicing: Sendable {
+public protocol AuthServicing: AnyObject, Sendable {
     func signup(email: String, password: String, displayName: String) async throws -> AuthUser
     func login(email: String, password: String) async throws -> AuthUser
     func logout() async

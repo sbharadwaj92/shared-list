@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 #if DEBUG
 // Helpers used only by SwiftUI #Preview blocks. Compiled out of release
@@ -14,29 +15,68 @@ import Foundation
 @MainActor
 enum PreviewSupport {
     static func loggedOutContainer() -> AppContainer {
-        let keychain = InMemoryKeychainStore()
-        let tokenStore = TokenStore(keychain: keychain)
-        let api = APIClient(baseURL: AppContainer.defaultBaseURL, tokenStore: tokenStore)
-        let auth = StubAuthService(tokenStore: tokenStore, behavior: .alwaysLoggedOut)
-        return AppContainer(keychain: keychain, tokenStore: tokenStore, api: api, auth: auth)
+        makeContainer(behavior: .alwaysLoggedOut, seedSession: false)
     }
 
     static func loggedInContainer() -> AppContainer {
-        let keychain = InMemoryKeychainStore()
-        let tokenStore = TokenStore(keychain: keychain)
-        let api = APIClient(baseURL: AppContainer.defaultBaseURL, tokenStore: tokenStore)
-        let auth = StubAuthService(tokenStore: tokenStore, behavior: .alwaysLoggedIn)
         // Seed a session synchronously so the preview comes up with state.
         // The Task is fire-and-forget; the preview view re-renders when the
         // state lands, which is exactly the behavior we'd see at runtime.
-        Task { @MainActor in
-            try? await tokenStore.save(.init(
-                accessToken: "preview-access",
-                refreshToken: "preview-refresh",
-                user: AuthUser(id: "preview-user", email: "alice@example.com", displayName: "Alice")
-            ))
+        let container = makeContainer(behavior: .alwaysLoggedIn, seedSession: true)
+        return container
+    }
+
+    private static func makeContainer(behavior: StubAuthService.Behavior, seedSession: Bool) -> AppContainer {
+        let keychain = InMemoryKeychainStore()
+        let tokenStore = TokenStore(keychain: keychain)
+        let api = APIClient(baseURL: AppContainer.defaultBaseURL, tokenStore: tokenStore)
+        let auth = StubAuthService(tokenStore: tokenStore, behavior: behavior)
+        let monitor = MockNetworkMonitor(isOnline: true)
+        let modelContainer = previewModelContainer()
+        let syncEngine = SyncEngine(
+            api: api,
+            container: modelContainer,
+            monitor: monitor,
+            currentUserId: { [weak auth] in auth?.currentUser()?.id }
+        )
+        if seedSession {
+            Task { @MainActor in
+                try? await tokenStore.save(.init(
+                    accessToken: "preview-access",
+                    refreshToken: "preview-refresh",
+                    user: AuthUser(id: "preview-user", email: "alice@example.com", displayName: "Alice")
+                ))
+            }
         }
-        return AppContainer(keychain: keychain, tokenStore: tokenStore, api: api, auth: auth)
+        return AppContainer(
+            keychain: keychain,
+            tokenStore: tokenStore,
+            api: api,
+            auth: auth,
+            networkMonitor: monitor,
+            modelContainer: modelContainer,
+            syncEngine: syncEngine
+        )
+    }
+
+    /// Build a SwiftData container with `isStoredInMemoryOnly: true` so each
+    /// preview / test session gets a fresh empty store and writes don't bleed
+    /// across runs. The schema lists every `@Model` type the app uses; if a
+    /// type is added in production code, this list must grow too.
+    static func previewModelContainer() -> ModelContainer {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        do {
+            return try ModelContainer(
+                for: UserModel.self,
+                ListModel.self,
+                ItemModel.self,
+                MemberModel.self,
+                SyncCursor.self,
+                configurations: configuration
+            )
+        } catch {
+            fatalError("Failed to construct preview ModelContainer: \(error)")
+        }
     }
 }
 
