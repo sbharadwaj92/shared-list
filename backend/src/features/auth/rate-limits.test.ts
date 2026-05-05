@@ -8,8 +8,10 @@ import { type TestDatabase, setupTestDatabase } from '../../infra/test-db.ts';
 // 429s on second-and-beyond signups). This file builds a *separate* app
 // instance with limits ON and confirms the throttle returns 429.
 //
-// The PLAN.md numbers (login 5/min/IP, signup 3/hour/IP, refresh 60/min/IP)
-// are tight enough that a small loop hits them without timing tricks.
+// The PLAN.md L81 numbers (login 30/min/IP, signup 10/hour/IP, refresh
+// 60/min/IP) are generous enough for a learning-project local-LAN dev
+// loop but still tight enough that a small focused loop hits them without
+// timing tricks.
 
 describe('auth rate limits (HTTP)', () => {
   let t: TestDatabase;
@@ -28,10 +30,10 @@ describe('auth rate limits (HTTP)', () => {
     await t.teardown();
   });
 
-  test('signup limit (3/hour) → 4th attempt returns 429', async () => {
-    // Three back-to-back signups should succeed (each with a different
+  test('signup limit (10/hour) → 11th attempt returns 429', async () => {
+    // Ten back-to-back signups should succeed (each with a different
     // email; we're testing rate-limiting on signup, not duplicate-email).
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       const res = await app.request('/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -43,14 +45,14 @@ describe('auth rate limits (HTTP)', () => {
       });
       expect(res.status).toBe(201);
     }
-    // Fourth one is throttled.
+    // Eleventh one is throttled.
     const res = await app.request('/auth/signup', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        email: 'rate-4@example.com',
+        email: 'rate-11@example.com',
         password: 'correct horse battery staple',
-        displayName: 'R4',
+        displayName: 'R11',
       }),
     });
     expect(res.status).toBe(429);

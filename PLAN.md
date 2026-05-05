@@ -78,7 +78,7 @@ Tables: `users`, `lists`, `list_members`, `items`, `device_tokens`, `list_invite
 - **Zod** for validation via `@hono/zod-validator`; use `drizzle-zod` to derive schemas from Drizzle tables (no double-defining)
 - **OpenAPI** auto-generated via `@hono/zod-openapi` (`createRoute({...})`); Swagger UI served at a route
 - **Error handling**: throw exceptions, central `app.onError()`, `HTTPException` for known HTTP errors (e.g. `throw new HTTPException(404, {message: 'list not found'})`); unknown errors → generic 500 with logging + sanitized response
-- **Rate limiting**: `hono-rate-limiter` with in-memory store. Login 5/min/IP, signup 3/hour/IP, refresh 60/min/IP, invite-accept 30/min/IP. In-memory is fine because backend runs as a single Bun process under `bun --watch`.
+- **Rate limiting**: `hono-rate-limiter` with in-memory store. Login 30/min/IP, signup 10/hour/IP, refresh 60/min/IP, invite-accept 30/min/IP. Numbers are deliberately generous for a learning-project local-LAN deployment — the goal is to demonstrate the pattern (request → 429 → retry-after) without making local dev iteration painful. A production deployment would tighten these. In-memory is fine because backend runs as a single Bun process under `bun --watch`.
 - **CORS**: skipped (native mobile clients don't enforce CORS; Swagger UI is same-origin)
 
 ### Async work
