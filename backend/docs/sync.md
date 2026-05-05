@@ -15,13 +15,16 @@ to handle. If something here is wrong, the client will be wrong.
 | Slice | Status | What it adds |
 | ----- | ------ | ------------ |
 | A — read side: `?since=` for lists/items/list_members | **Landed** (2026-05-05) | Cursor-based pull; tombstones; membership-scoped privacy |
-| B — iOS sync engine skeleton | Pending | First real consumer of slice A |
-| C — write side: `If-Match` conditional updates + idempotent `POST` | Pending | Mutations + LWW conflict path |
+| B — iOS sync engine skeleton | **Landed** (2026-05-05) | First real consumer of slice A |
+| C.1 — backend writes (POST/PATCH/DELETE on lists + items) | **Landed** (2026-05-05) | Idempotent POST; If-Match conditional updates; cascade soft-delete |
+| C.2 — iOS mutation queue + optimistic apply | Pending | Persistent write queue, optimistic UI |
+| C.3 — iOS drainer + 409→reconcile + Testcontainers | Pending | Real backend cycle test |
 | D — tombstone fuzz + learning doc | Pending | Phase-completion deliverables |
 
-If you're implementing slice B (or porting later to Android), the contract
-covered by slice A is below. Slice C/D are not specified yet — they will be
-added here when their behavior is locked down by tests.
+If you're implementing slice C.2/C.3 (or porting later to Android), both the
+read-side contract (slice A) and the write-side contract (slice C.1) below
+are now load-bearing. Slice D is not specified yet — it will be added when
+its behavior is locked down by tests.
 
 ---
 
@@ -249,6 +252,194 @@ the same pair.
 
 ---
 
+## Write side (slice C.1)
+
+Mutations against `lists` and `items`. Members CRUD lands later (Phase 15
+sharing flow). Every endpoint requires `Authorization: Bearer <jwt>` and
+requires active membership of the relevant list — except `POST /lists`,
+which CREATES the membership row in the same transaction.
+
+### Idempotent `POST` (the contract)
+
+A retried `POST` (network blip, app foregrounded mid-flight) MUST NOT
+double-create. The deal:
+
+- **Client owns the id.** Generate UUID v7 locally and send it as `id` in
+  the body. The same id on retry is what makes idempotency work — a server-
+  assigned id would create one row per attempt.
+- **Server uses `INSERT ... ON CONFLICT DO NOTHING`.** A second POST with the
+  same id silently no-ops at the SQL level.
+- **Status reflects which path you got:** `201 Created` on the first
+  successful insert, `200 OK` on the conflict path (your retry hit; the
+  canonical row from the first call comes back unchanged).
+- **Idempotent POST is "did this happen?", NOT "upsert this payload."** A
+  retry with a different `name` or `text` returns the original row, NOT a
+  rename. Renames go through PATCH.
+- **Soft-deleted-id collision = 409.** If the id you picked happens to
+  match a tombstoned row, the server returns 409 — pick a new UUID. We
+  don't resurrect tombstones, since the row's history (and the tombstone
+  signal that flowed to other clients) would be inconsistent.
+
+### Conditional update via `If-Match` (the contract)
+
+Every PATCH endpoint requires an `If-Match` header carrying the
+`updated_at` timestamp the client last saw for the row.
+
+- **Match → 200, returns the new row.** The trigger bumps `updated_at` on
+  every UPDATE; the response carries the new value, which the client uses
+  as the next `If-Match`.
+- **Mismatch → 409, returns `{ error, latest }`.** The body always carries
+  the current canonical row so the client can fold the divergent change in
+  without a follow-up GET. PLAN.md L62 picked 409 (not RFC-7232 412) so
+  every "your write didn't land because of state divergence" failure has
+  one status code regardless of whether it's an idempotency-id collision
+  or an If-Match mismatch.
+- **Row tombstoned between read and write → 404.** The CAS predicate also
+  pins `deleted_at IS NULL`, so a write against a concurrently-deleted row
+  doesn't silently resurrect it.
+- **Header missing or malformed → 400.** ISO8601 with timezone is the only
+  accepted shape (matches what the read feed emits in `updatedAt`).
+
+### Soft-delete (the contract)
+
+`DELETE` endpoints set `deleted_at` rather than removing the row. The
+`?since=` feeds surface tombstoned rows so other clients can drop them
+locally during the 90-day retention window.
+
+- **Lists cascade.** `DELETE /lists/:id` soft-deletes the list AND every
+  *currently active* item in the list, in one transaction. Each affected
+  item gets its own `updated_at` bump, so the items `?since=` feed
+  surfaces every tombstone on the next pull. Already-tombstoned items
+  are NOT re-touched (we don't churn long-dead rows back into the feed).
+- **Owner-only on lists.** `DELETE /lists/:id` requires `role = 'owner'`
+  on the caller's membership. Editors get 403.
+- **Members can DELETE items.** Any active member can soft-delete an item
+  in a list they belong to.
+- **Idempotent on the wire shape.** Successful soft-delete returns 204.
+  A second DELETE on an already-tombstoned row returns 404 — there's
+  nothing to do, and the client should treat 204 + 404 the same way for
+  delete operations.
+
+### Endpoints
+
+#### `POST /lists`
+
+Create a new list. Caller becomes the `owner` member in the same
+transaction.
+
+**Body**: `{ id: uuid, name: string }`. `id` is the client-generated UUID
+v7. `name` is trimmed, non-empty, ≤120 chars.
+
+**Responses**:
+- `201` — created; body is the new `ListDTO`.
+- `200` — idempotent retry hit; body is the canonical `ListDTO` (whatever
+  the original POST wrote — name on retry is ignored).
+- `400` — invalid body.
+- `401` — missing/invalid bearer.
+- `409` — id collides with a tombstoned list.
+
+#### `POST /lists/:id/items`
+
+Create an item under a list the caller is a member of.
+
+**Body**: `{ id: uuid, text: string, position: int }`. `id` is client-
+generated UUID v7. `text` is trimmed, non-empty, ≤500 chars. `position`
+is any 32-bit signed integer; smaller values sort first.
+
+**Responses**:
+- `201` — created; body is the new `ItemDTO`.
+- `200` — idempotent retry; canonical row returned.
+- `400` — invalid body or path.
+- `401` — missing/invalid bearer.
+- `403` — caller is not a member of the list (also covers "list does not
+  exist", to avoid leaking existence to non-members).
+- `409` — id collides with a tombstoned item.
+
+#### `PATCH /lists/:id`
+
+Rename a list. Conditional via `If-Match`.
+
+**Headers**: `If-Match: <ISO8601>` — required. Value is the row's last
+known `updated_at`.
+
+**Body**: `{ name: string }`. Trimmed, non-empty, ≤120 chars.
+
+**Responses**:
+- `200` — renamed; body is the new `ListDTO`.
+- `400` — invalid body or invalid `If-Match`.
+- `401` — missing/invalid bearer.
+- `403` — caller is not a member.
+- `404` — list was deleted between membership check and update.
+- `409` — `If-Match` mismatch. Body shape:
+  ```json
+  {
+    "error": {
+      "code": "precondition_failed",
+      "message": "...",
+      "requestId": "..."
+    },
+    "latest": { /* full ListDTO */ }
+  }
+  ```
+
+#### `PATCH /items/:id`
+
+Update an item's `text`, `position`, or `checked` (in any combination —
+at least one must be set). Conditional via `If-Match`.
+
+**Headers**: `If-Match: <ISO8601>` — required.
+
+**Body**: `{ text?: string, position?: int, checked?: ISO8601 | null }`.
+`checked` set to a timestamp marks the item checked at that time;
+`checked: null` un-checks it. The route layer rejects an empty body
+(`{}`) as 400.
+
+**Responses**:
+- `200` — patched; body is the new `ItemDTO`.
+- `400`, `401`, `403`, `404` — same semantics as PATCH /lists/:id (note
+  that 404 here is "the item itself is gone", which can happen if a
+  concurrent DELETE landed first).
+- `409` — `If-Match` mismatch; body includes `latest: ItemDTO`.
+
+#### `DELETE /lists/:id`
+
+Soft-delete a list and cascade soft-delete to its items. Owner only.
+
+**Responses**:
+- `204` — deleted (success path is empty body).
+- `401` — missing/invalid bearer.
+- `403` — caller is not a member, or is a member but not the owner.
+- `404` — list already deleted.
+
+#### `DELETE /items/:id`
+
+Soft-delete a single item.
+
+**Responses**:
+- `204` — deleted.
+- `401` — missing/invalid bearer.
+- `403` — caller is not a member of the parent list.
+- `404` — item does not exist or already deleted.
+
+### How write responses interact with the read feed
+
+A successful PATCH or DELETE returns the new canonical row (or 204 in
+the delete case), AND the row will surface again on the next `GET /sync/*`
+pull because its `updated_at` is now > the cursor the client held before
+the write. This is by design:
+
+- The client can update its local state immediately from the write
+  response (instant UI).
+- The next `?since=` pull serves as a consistency check — if the row that
+  comes back differs from what the client cached (because some other
+  device wrote between the PATCH response and the pull), LWW wins.
+
+In short: writes are optimistic locally; the read feed is the
+authoritative reconciliation channel. Slice C.2 (iOS mutation queue) is
+where this dance gets formalized.
+
+---
+
 ## Reconciliation algorithm (recommended, not enforced)
 
 Sketch of how a client should consume these feeds. Slice B will lock this
@@ -316,9 +507,16 @@ Behaviors this document specifies are pinned by tests:
     privacy, cursor.
   - `src/features/list-members/repo.test.ts` — `membersSince` self-tombstone
     visibility, "other members" visibility, post-revocation scoping.
-- HTTP layer (wire contract):
+- HTTP layer (wire contract, read side):
   - `src/features/sync/integration.test.ts` — auth, validation,
     `serverTime` round-trip, tombstone field shape.
+- HTTP layer (wire contract, write side — slice C.1):
+  - `src/features/lists/integration.test.ts` — POST idempotency, PATCH
+    If-Match 200 + 409, DELETE owner-only + cascade-bumps-items-updated_at,
+    cross-user 403 (no existence leak).
+  - `src/features/items/integration.test.ts` — same shape for items;
+    additionally pins the `checked` field round-trip and the empty-PATCH
+    400.
 
 When the protocol changes, update both this doc and the relevant tests in
 the same PR. A doc that drifts from tests is worse than no doc.

@@ -2,6 +2,8 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { type BuildAuthRoutesOptions, buildAuthRoutes } from './features/auth/routes.ts';
 import { healthRoutes } from './features/health/routes.ts';
+import { buildItemsCreateRoutes, buildItemsRoutes } from './features/items/routes.ts';
+import { buildListsRoutes } from './features/lists/routes.ts';
 import { buildSyncRoutes } from './features/sync/routes.ts';
 import type { Database } from './infra/db.ts';
 import { onError } from './infra/middleware/error.ts';
@@ -54,6 +56,13 @@ export const buildApp = (db: Database, opts: BuildAppOptions = {}): OpenAPIHono<
   app.route('/health', healthRoutes);
   app.route('/auth', buildAuthRoutes(db, opts.auth));
   app.route('/sync', buildSyncRoutes(db));
+  // Two subapps mount under `/lists` because the create-item endpoint
+  // (`POST /lists/:id/items`) is naturally nested under the parent list,
+  // while POST/PATCH/DELETE on the list itself live next to it. Hono merges
+  // routers mounted at the same path, so both register cleanly.
+  app.route('/lists', buildListsRoutes(db));
+  app.route('/lists', buildItemsCreateRoutes(db));
+  app.route('/items', buildItemsRoutes(db));
 
   // OpenAPI spec endpoint. The `doc` method walks the registered routes,
   // generates an OpenAPI 3.1 document, and serves it as JSON. Anything that
