@@ -4,11 +4,11 @@ import type { Database } from '../../infra/db.ts';
 import { type AuthVariables, requireAuth } from '../../infra/middleware/auth.ts';
 import type { RequestIdVariables } from '../../infra/middleware/request-id.ts';
 import { validationHook } from '../../infra/middleware/validation-hook.ts';
-import type { Item, List, ListMember } from '../../infra/schema.ts';
 import { ErrorResponse } from '../auth/schemas.ts';
 import { itemsSince } from '../items/repo.ts';
 import { membersSince } from '../list-members/repo.ts';
 import { listsSince } from '../lists/repo.ts';
+import { toItemDTO, toListDTO, toListMemberDTO } from './dto.ts';
 import {
   SinceQuery,
   SyncItemsResponse,
@@ -222,42 +222,3 @@ export const buildSyncRoutes = (db: Database): OpenAPIHono<Env> => {
 
   return syncRoutes;
 };
-
-// DB-row → wire-DTO converters. We hand-write these (instead of leaning on
-// JSON.stringify's automatic Date-toISO behavior) so the wire shape is
-// explicit at the boundary, easy to grep when tracing field changes, and
-// type-checked against the response schema. Any field rename in the DB
-// surfaces as a TS error here rather than as a silent omission on the wire.
-
-const toListDTO = (r: List) => ({
-  id: r.id,
-  name: r.name,
-  createdBy: r.createdBy,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
-});
-
-const toItemDTO = (r: Item) => ({
-  id: r.id,
-  listId: r.listId,
-  text: r.text,
-  // The DB column is `checked_at` mapped to the `checked` field — `null`
-  // for unchecked, ISO timestamp once checked. Pass-through preserves the
-  // when-was-it-checked information for any UI that wants to render it.
-  checked: r.checked ? r.checked.toISOString() : null,
-  position: r.position,
-  createdBy: r.createdBy,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
-});
-
-const toListMemberDTO = (r: ListMember) => ({
-  listId: r.listId,
-  userId: r.userId,
-  role: r.role,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
-});
