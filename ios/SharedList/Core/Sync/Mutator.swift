@@ -68,6 +68,12 @@ public final class Mutator {
     /// idempotency contract because `ON CONFLICT (id)` only cares about
     /// uniqueness, not version bits — see KNOWN_DEBT note at file bottom).
     private let uuidGenerator: any UUIDGenerating
+    /// Slice C.3: when set, every successful Mutator call kicks the drainer
+    /// so the local apply + server send happen as one perceived action when
+    /// online. Held weakly because the AppContainer owns both ends and we
+    /// don't want a retain cycle. Optional because the slice-C.2-only
+    /// initializer (used by some tests) doesn't need a drainer.
+    private weak var drainer: Drainer?
 
     public init(
         container: ModelContainer,
@@ -77,6 +83,16 @@ public final class Mutator {
         self.container = container
         self.clock = clock
         self.uuidGenerator = uuidGenerator
+    }
+
+    /// Two-phase wiring escape hatch: `Drainer` and `Mutator` need to know
+    /// about each other (drainer reads queue rows mutator wrote; mutator
+    /// kicks drainer after each save). The AppContainer constructs both
+    /// then installs the link via this method, breaking the construction-
+    /// order cycle. Held weakly so the existing object graph isn't
+    /// retain-cycled.
+    public func attachDrainer(_ drainer: Drainer) {
+        self.drainer = drainer
     }
 
     // MARK: - Lists
@@ -127,6 +143,7 @@ public final class Mutator {
         // One save commits both rows atomically. A throw rolls both back
         // (which is the point — see file header).
         try context.save()
+        drainer?.kick()
         return id
     }
 
@@ -168,6 +185,7 @@ public final class Mutator {
         ))
 
         try context.save()
+        drainer?.kick()
     }
 
     /// Soft-delete a list AND cascade soft-delete to its items, mirroring
@@ -203,6 +221,7 @@ public final class Mutator {
         ))
 
         try context.save()
+        drainer?.kick()
     }
 
     // MARK: - Items
@@ -247,6 +266,7 @@ public final class Mutator {
         ))
 
         try context.save()
+        drainer?.kick()
         return id
     }
 
@@ -307,6 +327,7 @@ public final class Mutator {
         ))
 
         try context.save()
+        drainer?.kick()
     }
 
     public func deleteItem(id: String) throws {
@@ -329,6 +350,7 @@ public final class Mutator {
         ))
 
         try context.save()
+        drainer?.kick()
     }
 
     // MARK: - Lookup helpers

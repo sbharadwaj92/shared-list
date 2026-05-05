@@ -26,6 +26,7 @@ public final class AppContainer {
     public let modelContainer: ModelContainer
     public let syncEngine: SyncEngine
     public let mutator: Mutator
+    public let drainer: Drainer
 
     // The base URL is hardcoded for v1 — local backend on the user's Mac at
     // its mDNS hostname. Putting it in code rather than Info.plist keeps the
@@ -49,6 +50,17 @@ public final class AppContainer {
             currentUserId: { [weak auth] in auth?.currentUser()?.id }
         )
         let mutator = Mutator(container: modelContainer)
+        let drainer = Drainer(
+            api: api,
+            container: modelContainer,
+            monitor: monitor,
+            syncEngine: syncEngine
+        )
+        // Two-phase wiring: Mutator + Drainer reference each other (mutator
+        // kicks drainer post-save; drainer reads queue rows mutator wrote).
+        // Constructing one-then-the-other and patching the back-reference
+        // breaks the cycle without forcing an Optional or a lazy var.
+        mutator.attachDrainer(drainer)
 
         self.keychain = keychain
         self.tokenStore = tokenStore
@@ -58,6 +70,7 @@ public final class AppContainer {
         self.modelContainer = modelContainer
         self.syncEngine = syncEngine
         self.mutator = mutator
+        self.drainer = drainer
     }
 
     // Test/preview seam: build a container with hand-supplied collaborators.
@@ -72,7 +85,8 @@ public final class AppContainer {
         networkMonitor: any NetworkMonitoring,
         modelContainer: ModelContainer,
         syncEngine: SyncEngine,
-        mutator: Mutator
+        mutator: Mutator,
+        drainer: Drainer
     ) {
         self.keychain = keychain
         self.tokenStore = tokenStore
@@ -82,6 +96,10 @@ public final class AppContainer {
         self.modelContainer = modelContainer
         self.syncEngine = syncEngine
         self.mutator = mutator
+        self.drainer = drainer
+        // Same two-phase wiring as the production initializer; a test
+        // that builds these manually still wants the kick-on-save link.
+        mutator.attachDrainer(drainer)
     }
 
     // Called from SharedListApp on launch to hydrate any persisted session.

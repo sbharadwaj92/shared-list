@@ -11,6 +11,7 @@ import SwiftUI
 struct SharedListApp: App {
     @State private var container = AppContainer()
     @State private var didBootstrap = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -27,13 +28,37 @@ struct SharedListApp: App {
                         // Slice B: kick off an initial sync if we have a
                         // signed-in session. The reconcile is best-effort —
                         // a thrown error here just means we'll try again on
-                        // the next foreground tick. We deliberately don't
-                        // surface the error in UI yet (slice C will add a
-                        // "last synced" indicator).
+                        // the next foreground tick.
                         if container.auth.currentUser() != nil {
                             try? await container.syncEngine.reconcile()
+                            // Slice C.3: kick the drainer too in case any
+                            // queued mutations from a prior session are
+                            // still pending (force-quit before drain
+                            // completed, then relaunch).
+                            container.drainer.kick()
                         }
                         didBootstrap = true
+                    }
+                }
+                // Slice C.3 trigger: when NetworkMonitor reports we just
+                // came online, kick the drainer. Any rows queued while
+                // offline drain immediately. We use the @Observable
+                // tracking via the bridge `isOnline` property — SwiftUI
+                // re-runs the closure on every change.
+                .onChange(of: container.networkMonitor.isOnline) { _, isOnline in
+                    if isOnline {
+                        container.drainer.kick()
+                    }
+                }
+                // Slice C.3 trigger: foreground. The same trigger surface
+                // SyncEngine reconciliation uses (Phase 18 will revisit if
+                // we want both reconcile + drain in one foreground hop).
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active && container.auth.currentUser() != nil {
+                        Task { @MainActor in
+                            try? await container.syncEngine.reconcile()
+                            container.drainer.kick()
+                        }
                     }
                 }
         }

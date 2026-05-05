@@ -44,3 +44,31 @@ cd ios
 xcodegen generate
 xcodebuild test -scheme SharedList -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
 ```
+
+### Drainer integration tests (env-gated)
+
+`SharedListTests/DrainerIntegrationTests.swift` exercises the slice-C.3 drainer against a real running backend (Postgres + Hono). To keep `xcodebuild test` fast for the unit suite, the integration tests skip silently when `BACKEND_URL` is not set in the environment.
+
+To run them locally:
+
+```bash
+# Terminal 1 — start the backend (this brings up Postgres + Bun via the
+# instructions in backend/README.md)
+cd backend
+docker compose up -d
+bun run dev
+```
+
+```bash
+# Terminal 2 — run the iOS suite with BACKEND_URL pointing at the live
+# backend. The tests sign up a fresh user per run so re-runs don't 409.
+cd ios
+xcodegen generate
+BACKEND_URL=https://Santoshs-MacBook-Pro-48.local \
+  xcodebuild test \
+  -scheme SharedList \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=latest' \
+  -only-testing:SharedListTests/DrainerIntegration
+```
+
+Why env-gated and not Testcontainers-from-Swift: PLAN.md L380 only requires "real backend", not "test self-bootstraps the backend." Booting Bun + Postgres from `Process` calls in Swift adds CI fragility (DOCKER_HOST detection, Bun install path, port collisions, lifecycle on test crash) for no correctness gain — a real backend at a URL is just as "real" whether the test launched it or not. The trade-off is a slightly more involved CI workflow (it boots the backend in a step before running `xcodebuild test`), which is what `.github/workflows/ios-integration.yml` does.
