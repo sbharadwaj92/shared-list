@@ -9,8 +9,8 @@ The "Right now" block at the top is the session handoff. The "Phases" block belo
 ## Right now
 
 **Last updated**: 2026-05-05
-**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — slice A code-complete on `phase-07-sync-since` branch, awaiting PR + merge
-**Next action**: open PR for slice A (backend `?since=` read feed). After merge, begin slice B — iOS SwiftData `@Model` types (`UserModel`, `ListModel`, `ItemModel`, `MemberModel`), `ModelContainer` setup, `NetworkMonitor` (`NWPathMonitor`-backed `@Observable`), and a `SyncEngine` skeleton that does *only* full-pull reconciliation against `/sync/lists`/`/sync/items`/`/sync/list_members`. Mutation queue and LWW are slice C. Slice D wraps with tombstone fuzz + `docs/learning/phase-07.md`. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
+**Phase**: Phase 7 IN PROGRESS (started 2026-05-05) — slice A merged (PR #8); slice B (iOS read-side sync engine) underway on `phase-07-ios-sync-skeleton`
+**Next action**: slice B — iOS SwiftData `@Model` types (`UserModel`, `ListModel`, `ItemModel`, `MemberModel`), `ModelContainer` setup, `NetworkMonitor` (`NWPathMonitor`-backed `@Observable`), and a `SyncEngine` skeleton that does *only* full-pull reconciliation against `/sync/lists`/`/sync/items`/`/sync/list_members`, persisting per-resource `serverTime` cursors and applying tombstone-aware upserts. No mutations, no LWW yet — those land in slice C. Tests run against a real backend the same way Phase 5 did. Slice D wraps with tombstone fuzz + `docs/learning/phase-07.md`. Phase 7 is the central learning goal of this project; PLAN.md is explicit there's no off-ramp if it stalls.
 **Blockers**: none
 
 ---
