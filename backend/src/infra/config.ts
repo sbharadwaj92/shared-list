@@ -33,6 +33,73 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(60 * 60 * 24 * 30),
+
+  // --- Push delivery (Phase 10) ---
+  //
+  // Push is opt-in. A solo dev without Apple/Firebase credentials must
+  // still be able to `bun run dev` — so the absence of these vars is OK,
+  // and the push subsystem becomes a no-op when disabled. When enabled,
+  // BOTH the APNs and FCM blocks are required (we can't half-enable
+  // pushes; that just deferred-fails on the platform we forgot).
+  //
+  // `PUSH_ENABLED=true` is the master switch. The boot validator enforces
+  // the dependency: if true, all credential vars must be present.
+
+  PUSH_ENABLED: z.coerce.boolean().default(false),
+
+  // APNs (Apple Push Notification service) credentials.
+  //   - APNS_TEAM_ID: the Apple Developer team ID (10-char string)
+  //   - APNS_KEY_ID: the Key ID assigned to the .p8 (10-char string)
+  //   - APNS_PRIVATE_KEY: the contents of the .p8 file (PEM-encoded ES256
+  //     private key). Multi-line; in `.env` use \n escapes or a single-
+  //     line PEM. We do the unescape at use site, not here, so the
+  //     stored value is the raw text and we don't pre-mangle it.
+  //   - APNS_BUNDLE_ID: the iOS app bundle id — sent in `apns-topic`
+  //     header. APNs rejects pushes whose topic doesn't match the cert
+  //     they were sent under, so a typo here causes silent delivery
+  //     failures (visible in APNs response).
+  //   - APNS_USE_SANDBOX: targets api.sandbox.push.apple.com (true) or
+  //     api.push.apple.com (false). Per PLAN.md L391 we use sandbox for
+  //     dev — production endpoint requires a production-signed app.
+  APNS_TEAM_ID: z.string().min(1).optional(),
+  APNS_KEY_ID: z.string().min(1).optional(),
+  APNS_PRIVATE_KEY: z.string().min(1).optional(),
+  APNS_BUNDLE_ID: z.string().min(1).optional(),
+  APNS_USE_SANDBOX: z.coerce.boolean().default(true),
+
+  // FCM (Firebase Cloud Messaging) credentials. The HTTP v1 API uses a
+  // service account JSON for OAuth2 token minting. We accept the JSON as
+  // a single string (escape newlines in `.env`) and parse at use site.
+  //   - FCM_PROJECT_ID is also present inside the service account JSON
+  //     but we surface it as its own var because the v1 URL embeds it,
+  //     and forcing a JSON.parse just to read it would be silly.
+  FCM_PROJECT_ID: z.string().min(1).optional(),
+  FCM_SERVICE_ACCOUNT_JSON: z.string().min(1).optional(),
+});
+
+// Cross-field validation: when push is enabled, every credential it
+// needs MUST be present. The Zod object-level `.superRefine` is the
+// right tool here — running this after the per-field schema parses
+// means we already have typed values to assert on.
+const envSchemaWithPushGuard = envSchema.superRefine((env, ctx) => {
+  if (!env.PUSH_ENABLED) return;
+  const required = [
+    'APNS_TEAM_ID',
+    'APNS_KEY_ID',
+    'APNS_PRIVATE_KEY',
+    'APNS_BUNDLE_ID',
+    'FCM_PROJECT_ID',
+    'FCM_SERVICE_ACCOUNT_JSON',
+  ] as const;
+  for (const key of required) {
+    if (!env[key]) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: `${key} is required when PUSH_ENABLED=true`,
+      });
+    }
+  }
 });
 
 // `Readonly<>` makes the inferred type immutable at compile time — you can't
@@ -43,7 +110,7 @@ export type AppConfig = Readonly<z.infer<typeof envSchema>>;
 // `safeParse` returns `{success, data | error}` instead of throwing. We use it
 // (over `parse`) because we want to *control* the failure path — print our own
 // formatted message and `process.exit(1)`, not surface a Zod stack trace.
-const parsed = envSchema.safeParse(process.env);
+const parsed = envSchemaWithPushGuard.safeParse(process.env);
 
 if (!parsed.success) {
   // Fail loudly at boot — a typed config that lies is worse than no config.
