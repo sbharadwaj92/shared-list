@@ -4,6 +4,7 @@ import { type BuildAuthRoutesOptions, buildAuthRoutes } from './features/auth/ro
 import { healthRoutes } from './features/health/routes.ts';
 import { buildItemsCreateRoutes, buildItemsRoutes } from './features/items/routes.ts';
 import { buildListsRoutes } from './features/lists/routes.ts';
+import { type EventPublisher, InMemoryEventPublisher } from './features/realtime/publisher.ts';
 import { buildSyncRoutes } from './features/sync/routes.ts';
 import type { Database } from './infra/db.ts';
 import { onError } from './infra/middleware/error.ts';
@@ -30,11 +31,22 @@ export type AppEnv = {
 // straight into `app.fetch` without binding a port or starting a server.
 // Production (index.ts) calls Bun.serve once with the same `app.fetch`.
 // One construction path, two consumers — no test-only mocks of the HTTP layer.
+// `eventPublisher` is the seam Phase 10 introduces: mutation routes call
+// `publisher.publish(event)` after a write commits, and the publisher fans
+// it out to subscribed WebSockets. Tests pass an `InMemoryEventPublisher`
+// to assert on published events without booting a real server; production
+// passes a `BunEventPublisher` that's bound to the live `Bun.Server`
+// instance. Defaulting to InMemory here means existing integration tests
+// (which don't care about events) work unchanged and pre-Phase-10 routes
+// have a no-op recorder rather than a `null` they'd have to guard against.
 export type BuildAppOptions = {
   auth?: BuildAuthRoutesOptions;
+  eventPublisher?: EventPublisher;
 };
 
 export const buildApp = (db: Database, opts: BuildAppOptions = {}): OpenAPIHono<AppEnv> => {
+  const eventPublisher = opts.eventPublisher ?? new InMemoryEventPublisher();
+
   // `defaultHook` reshapes Zod validation failures into our standard
   // `{error:{code,message,requestId}}` envelope. Without this, a request
   // body that fails Zod parsing (e.g. password too short) returns the raw
@@ -60,9 +72,9 @@ export const buildApp = (db: Database, opts: BuildAppOptions = {}): OpenAPIHono<
   // (`POST /lists/:id/items`) is naturally nested under the parent list,
   // while POST/PATCH/DELETE on the list itself live next to it. Hono merges
   // routers mounted at the same path, so both register cleanly.
-  app.route('/lists', buildListsRoutes(db));
-  app.route('/lists', buildItemsCreateRoutes(db));
-  app.route('/items', buildItemsRoutes(db));
+  app.route('/lists', buildListsRoutes(db, eventPublisher));
+  app.route('/lists', buildItemsCreateRoutes(db, eventPublisher));
+  app.route('/items', buildItemsRoutes(db, eventPublisher));
 
   // OpenAPI spec endpoint. The `doc` method walks the registered routes,
   // generates an OpenAPI 3.1 document, and serves it as JSON. Anything that

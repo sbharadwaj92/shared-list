@@ -6,6 +6,7 @@ import type { RequestIdVariables } from '../../infra/middleware/request-id.ts';
 import { validationHook } from '../../infra/middleware/validation-hook.ts';
 import { ErrorResponse } from '../auth/schemas.ts';
 import { activeMembership } from '../list-members/repo.ts';
+import type { EventPublisher } from '../realtime/publisher.ts';
 import { toListDTO } from '../sync/dto.ts';
 import {
   ListIdConflictWithTombstone,
@@ -147,7 +148,7 @@ const deleteListRoute = createRoute({
 
 // --- registry ---
 
-export const buildListsRoutes = (db: Database): OpenAPIHono<Env> => {
+export const buildListsRoutes = (db: Database, publisher: EventPublisher): OpenAPIHono<Env> => {
   const listsRoutes = new OpenAPIHono<Env>({ defaultHook: validationHook });
 
   listsRoutes.openAPIRegistry.registerComponent('securitySchemes', 'bearerAuth', {
@@ -167,6 +168,19 @@ export const buildListsRoutes = (db: Database): OpenAPIHono<Env> => {
         name: body.name,
         ownerId: userId,
       });
+      // Only `created=true` triggers an event — an idempotent retry is by
+      // definition NOT a state change, so emitting one would cause every
+      // network blip + client retry to spam every subscriber with phantom
+      // "list created" pings. Reconciliation handles the genuine case.
+      if (created) {
+        publisher.publish({
+          entity: 'list',
+          action: 'created',
+          id: row.id,
+          listId: row.id,
+          at: row.updatedAt.toISOString(),
+        });
+      }
       return c.json(toListDTO(row), created ? 201 : 200);
     } catch (err) {
       if (err instanceof ListIdConflictWithTombstone) {
@@ -210,6 +224,13 @@ export const buildListsRoutes = (db: Database): OpenAPIHono<Env> => {
       expectedUpdatedAt: expected,
     });
     if (result.ok) {
+      publisher.publish({
+        entity: 'list',
+        action: 'updated',
+        id: result.row.id,
+        listId: result.row.id,
+        at: result.row.updatedAt.toISOString(),
+      });
       return c.json(toListDTO(result.row), 200);
     }
     if (!result.latest) {
@@ -267,6 +288,18 @@ export const buildListsRoutes = (db: Database): OpenAPIHono<Env> => {
       // ever breaks.
       throw new Error('softDeleteListCascade returned deleted=false on an active row');
     }
+    // One event for the list itself. The cascaded item tombstones go out
+    // implicitly: subscribers pull `?since=` on receipt of any event for
+    // the list and discover every item tombstone in the same response.
+    // Emitting N item-deleted events here would just generate redundant
+    // wake-ups on the client without delivering any new information.
+    publisher.publish({
+      entity: 'list',
+      action: 'deleted',
+      id,
+      listId: id,
+      at: new Date().toISOString(),
+    });
     return c.body(null, 204);
   });
 
