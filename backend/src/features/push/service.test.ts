@@ -112,13 +112,17 @@ describe('Enabled push service fan-out', () => {
   let queue: InMemoryPushQueue;
   let svc: ReturnType<typeof makeEnabledPushService>;
 
+  // 30s hook timeout — Testcontainers Postgres boot + container.stop()
+  // can exceed bun:test's default 5s under CI load (slow disk, concurrent
+  // jobs sharing Docker). Verified locally: ~3s end-to-end, but giving
+  // it 6x headroom because flaky CI is worse than a slow happy path.
   beforeAll(async () => {
     t = await setupTestDatabase();
-  });
+  }, 30_000);
 
   afterAll(async () => {
     await t.teardown();
-  });
+  }, 30_000);
 
   beforeEach(async () => {
     await t.db.execute(sql`TRUNCATE TABLE users CASCADE`);
