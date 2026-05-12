@@ -6,6 +6,7 @@ import type { RequestIdVariables } from '../../infra/middleware/request-id.ts';
 import { validationHook } from '../../infra/middleware/validation-hook.ts';
 import { ErrorResponse } from '../auth/schemas.ts';
 import { activeMembership } from '../list-members/repo.ts';
+import type { EventPublisher } from '../realtime/publisher.ts';
 import { toItemDTO } from '../sync/dto.ts';
 import {
   ItemIdConflictWithTombstone,
@@ -84,7 +85,10 @@ const createItemRoute = createRoute({
   },
 });
 
-export const buildItemsCreateRoutes = (db: Database): OpenAPIHono<Env> => {
+export const buildItemsCreateRoutes = (
+  db: Database,
+  publisher: EventPublisher,
+): OpenAPIHono<Env> => {
   const r = new OpenAPIHono<Env>({ defaultHook: validationHook });
   r.openAPIRegistry.registerComponent('securitySchemes', 'bearerAuth', {
     type: 'http',
@@ -113,6 +117,16 @@ export const buildItemsCreateRoutes = (db: Database): OpenAPIHono<Env> => {
         position: body.position,
         createdBy: userId,
       });
+      // Same idempotency guard as lists: only publish on a real insert.
+      if (created) {
+        publisher.publish({
+          entity: 'item',
+          action: 'created',
+          id: row.id,
+          listId: row.listId,
+          at: row.updatedAt.toISOString(),
+        });
+      }
       return c.json(toItemDTO(row), created ? 201 : 200);
     } catch (err) {
       if (err instanceof ItemIdConflictWithTombstone) {
@@ -192,7 +206,7 @@ const deleteItemRoute = createRoute({
   },
 });
 
-export const buildItemsRoutes = (db: Database): OpenAPIHono<Env> => {
+export const buildItemsRoutes = (db: Database, publisher: EventPublisher): OpenAPIHono<Env> => {
   const r = new OpenAPIHono<Env>({ defaultHook: validationHook });
   r.openAPIRegistry.registerComponent('securitySchemes', 'bearerAuth', {
     type: 'http',
@@ -240,6 +254,13 @@ export const buildItemsRoutes = (db: Database): OpenAPIHono<Env> => {
       expectedUpdatedAt: expected,
     });
     if (result.ok) {
+      publisher.publish({
+        entity: 'item',
+        action: 'updated',
+        id: result.row.id,
+        listId: result.row.listId,
+        at: result.row.updatedAt.toISOString(),
+      });
       return c.json(toItemDTO(result.row), 200);
     }
     if (!result.latest) {
@@ -280,6 +301,13 @@ export const buildItemsRoutes = (db: Database): OpenAPIHono<Env> => {
       // honest answer.
       throw new HTTPException(404, { message: 'item already deleted' });
     }
+    publisher.publish({
+      entity: 'item',
+      action: 'deleted',
+      id,
+      listId: existing.listId,
+      at: new Date().toISOString(),
+    });
     return c.body(null, 204);
   });
 

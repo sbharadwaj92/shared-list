@@ -23,6 +23,7 @@
     "hono": "^4.6.14",
     "hono-rate-limiter": "^0.5.3",
     "jose": "^6.2.3",
+    "pg-boss": "^12.18.2",
     "pino": "^9.5.0",
     "postgres": "^3.4.9",
     "zod": "^4"

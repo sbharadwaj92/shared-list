@@ -14,17 +14,20 @@ to handle. If something here is wrong, the client will be wrong.
 
 | Slice | Status | What it adds |
 | ----- | ------ | ------------ |
-| A — read side: `?since=` for lists/items/list_members | **Landed** (2026-05-05) | Cursor-based pull; tombstones; membership-scoped privacy |
-| B — iOS sync engine skeleton | **Landed** (2026-05-05) | First real consumer of slice A |
-| C.1 — backend writes (POST/PATCH/DELETE on lists + items) | **Landed** (2026-05-05) | Idempotent POST; If-Match conditional updates; cascade soft-delete |
-| C.2 — iOS mutation queue + optimistic apply | Pending | Persistent write queue, optimistic UI |
-| C.3 — iOS drainer + 409→reconcile + Testcontainers | Pending | Real backend cycle test |
-| D — tombstone fuzz + learning doc | Pending | Phase-completion deliverables |
+| Phase 7 A — read side: `?since=` for lists/items/list_members | **Landed** (2026-05-05) | Cursor-based pull; tombstones; membership-scoped privacy |
+| Phase 7 B — iOS sync engine skeleton | **Landed** (2026-05-05) | First real consumer of slice A |
+| Phase 7 C.1 — backend writes (POST/PATCH/DELETE on lists + items) | **Landed** (2026-05-05) | Idempotent POST; If-Match conditional updates; cascade soft-delete |
+| Phase 7 C.2 — iOS mutation queue + optimistic apply | **Landed** (2026-05-05) | Persistent write queue, optimistic UI |
+| Phase 7 C.3 — iOS drainer + 409→reconcile + Testcontainers | **Landed** (2026-05-05) | Real backend cycle test |
+| Phase 7 D — tombstone fuzz + learning doc | **Landed** (2026-05-05) | Phase 7 completion |
+| Phase 8 — Android mirror | **Landed** (2026-05-05) | Sync engine + mutation queue + drainer on Kotlin |
+| Phase 9 — cross-platform convergence | **Landed** (2026-05-05) | Harness drives iOS + Android against one backend |
+| Phase 10 — WebSocket + push infra | **Landed** (2026-05-12) | `/ws` upgrade, event publishing, POST /devices |
 
-If you're implementing slice C.2/C.3 (or porting later to Android), both the
-read-side contract (slice A) and the write-side contract (slice C.1) below
-are now load-bearing. Slice D is not specified yet — it will be added when
-its behavior is locked down by tests.
+The WebSocket layer and push infrastructure are documented further down in
+this file under "WebSocket layer (Phase 10)" and "Device registration
+(Phase 10)" sections. The WS layer is a freshness signal that triggers
+`?since=` reconciliation; it does not replace the read feed.
 
 ---
 
@@ -480,6 +483,166 @@ have landed, so the cleanup is consistent.
 
 ---
 
+## WebSocket layer (Phase 10)
+
+The WS layer is a freshness signal, not a replacement for the read feed.
+Receiving a WS event means "ask the server for fresh data via `?since=`";
+the event itself does not carry the changed row. This keeps the
+sync-engine reconciliation path as the single source of truth for local
+state and avoids re-implementing LWW merge on the WS receive path.
+
+### Endpoint
+
+`GET /ws?token=<access-jwt>` — upgraded to WebSocket if the token verifies.
+
+- Auth via query-string JWT. Headers can't be set by browsers on a WS
+  upgrade; query-string is the cross-platform-portable choice. Access
+  tokens are 15-minute TTL and Caddy strips the query string from `/ws`
+  log lines by default, mitigating the leak risk.
+- Returns HTTP 401 if the token is missing/invalid; HTTP 400 if the
+  request isn't a real WS upgrade.
+
+### Client → server messages
+
+```json
+{ "type": "subscribe",   "listId": "<uuid>" }
+{ "type": "unsubscribe", "listId": "<uuid>" }
+{ "type": "ping" }
+```
+
+- `subscribe` is gated by membership: the server re-checks
+  `activeMembership(db, listId, userId)` and returns
+  `{type:'error',code:'not_a_member',...}` if the caller is not a current
+  active member. This is the per-list auth boundary — the JWT proves
+  identity, the membership check proves entitlement.
+- `unsubscribe` is NOT gated by membership: a revoked user must be able
+  to drop a stale subscription, otherwise they'd be stuck holding a
+  topic they can never release.
+- `ping` is application-layer keepalive. Bun's `sendPings: true` already
+  emits WS-protocol-level ping frames at the transport layer, but those
+  are invisible to JS code on both clients; an application-level
+  ping/pong gives the client a definitive "the server is alive and
+  processing my messages" signal for the Phase 11/12 heartbeat.
+
+### Server → client messages
+
+```json
+{ "type": "ack", "inReplyTo": "subscribe" | "unsubscribe", "listId": "<uuid>" }
+{ "type": "pong" }
+{ "type": "event", "payload": { "entity": "list" | "item" | "list_member",
+                                "action": "created" | "updated" | "deleted",
+                                "id": "<uuid>", "listId": "<uuid>",
+                                "at": "<iso8601 with offset>" } }
+{ "type": "error", "code": "invalid_message" | "not_a_member" | "unauthenticated" | "rate_limited",
+                   "message": "<human-readable>" }
+```
+
+### Event publishing rules
+
+Mutation endpoints publish exactly one event per successful state change.
+Specifically:
+
+- `POST /lists` with `created=true` publishes `{entity:'list', action:'created'}`.
+  Idempotent retries that return `200` (the row already existed) do NOT
+  publish — they aren't state changes.
+- `PATCH /lists/:id` with 200 publishes `{entity:'list', action:'updated'}`.
+  409 (If-Match mismatch) and 404 do not publish.
+- `DELETE /lists/:id` publishes `{entity:'list', action:'deleted'}`.
+  The cascade to items soft-deletes their rows but does NOT publish
+  per-item events — clients pull `?since=` on the list-deleted event
+  and discover all the item tombstones in one response. N item-deleted
+  events would be redundant wake-ups carrying no new information.
+- `POST /lists/:id/items` with `created=true` publishes
+  `{entity:'item', action:'created', listId: <parent list>}`.
+- `PATCH /items/:id` with 200 publishes
+  `{entity:'item', action:'updated', listId: <parent list>}`.
+- `DELETE /items/:id` publishes
+  `{entity:'item', action:'deleted', listId: <parent list>}`.
+
+The `listId` field on every event is the routing key — it determines
+which topic the message lands in. Item events carry their parent list's
+id (not their own) because clients subscribe to lists, not items.
+
+### Revocation semantics
+
+When a user's membership is soft-deleted (`list_members.deleted_at SET`),
+the change takes effect on the next `subscribe` or reconnect — the
+existing socket's topic subscription persists until the socket closes
+naturally. This is documented limitation, not a bug: Bun's pub/sub doesn't
+expose a per-subscriber disconnect API, and we don't maintain a
+`Map<userId, Set<ws>>` to do it manually. For our 3-user scale this is
+acceptable; a stricter requirement would need either a per-user socket
+index or a server-side push of "you have been revoked from list X" that
+each client honours by unsubscribing.
+
+### Failure modes
+
+- **Server crash mid-connection**: clients see `close` with code 1006.
+  Reconnect-loop is the client's responsibility (Phases 11/12). On
+  reconnect, the client MUST pull `?since=` BEFORE re-subscribing — events
+  during the gap are lost.
+- **Malformed JSON**: server replies with `{type:'error',code:'invalid_message'}`
+  and keeps the socket open. A single bad message doesn't close the connection.
+- **Unknown message type**: same as malformed — error response, socket stays.
+- **Subscribe to a list you're not a member of**: server replies with
+  `{type:'error',code:'not_a_member'}` and does not subscribe.
+
+---
+
+## Device registration (Phase 10)
+
+`POST /devices` registers a (user, platform, token) tuple so the push
+subsystem can target the device.
+
+### Request
+
+```http
+POST /devices HTTP/1.1
+Authorization: Bearer <access-jwt>
+Content-Type: application/json
+
+{
+  "id":       "<uuid v7>",      // client-generated, idempotent on retry
+  "platform": "ios" | "android",
+  "token":    "<apns or fcm token>"
+}
+```
+
+### Response
+
+`200 OK` with the canonical row in `DeviceTokenDTO` shape:
+
+```json
+{
+  "id": "...", "userId": "...", "platform": "ios",
+  "token": "...", "lastSeenAt": "...", "createdAt": "...", "updatedAt": "..."
+}
+```
+
+Always `200`, never `201` — the action is "make this state true,"
+PUT-ish semantics in a POST envelope. The client doesn't need to
+distinguish first-time from re-registration.
+
+### Idempotency / handover semantics
+
+The unique constraint in the DB is on `token` alone, not `(user_id, token)`.
+This is deliberate:
+
+- APNs / FCM tokens are globally unique per platform.
+- A user who signs out and another user who signs in on the SAME
+  physical device receive the same token from the OS.
+- If we keyed uniqueness on `(user_id, token)`, both rows would survive
+  and the original user would keep receiving the new user's pushes —
+  a privacy bug.
+
+The repo helper's `ON CONFLICT (token) DO UPDATE` MOVES the row to the
+new owner, which is the only correct behaviour. `lastSeenAt` and
+`updatedAt` get bumped on every conflict so a dormant-token cleanup job
+(future Phase 19 polish) has a "this device was still alive" signal
+without an extra heartbeat query.
+
+---
+
 ## Things this protocol does NOT do
 
 Documented for the slice-B implementer so they don't expect them:
@@ -517,6 +680,37 @@ Behaviors this document specifies are pinned by tests:
   - `src/features/items/integration.test.ts` — same shape for items;
     additionally pins the `checked` field round-trip and the empty-PATCH
     400.
+- WebSocket layer (Phase 10):
+  - `src/features/realtime/messages.test.ts` — wire-format Zod parse for
+    every client/server message type.
+  - `src/features/realtime/ws.test.ts` — `handleClientMessage` against a
+    fake `ServerWebSocket` + real Testcontainers DB for membership.
+    Tests: subscribe gated by membership, subscribe-revoked-membership
+    rejects, unsubscribe NOT gated, ping/pong, malformed JSON, idempotent
+    re-subscribe.
+  - `src/features/realtime/integration.test.ts` — full round-trip via
+    real `Bun.serve` + real `WebSocket` client. Subscriber receives
+    publishes; non-subscriber does NOT; 401 on missing/invalid token at
+    upgrade.
+  - `src/features/realtime/event-wiring.test.ts` — every mutation route
+    publishes the right event with the right `id` + `listId`; 409 / 403
+    / idempotent retry do NOT publish.
+- Device registration (Phase 10):
+  - `src/features/devices/repo.test.ts` — `ON CONFLICT (token) DO UPDATE`
+    semantics including the user-handover case.
+  - `src/features/devices/integration.test.ts` — wire shape, idempotent
+    retry, auth gate, validation, multi-device per user, user-handover
+    via HTTP.
+- Push module (Phase 10):
+  - `src/features/push/apns.test.ts` — payload shape, reason-based
+    PushResult mapping for APNs.
+  - `src/features/push/fcm.test.ts` — payload shape, OAuth two-step
+    flow, error-code mapping for FCM, service-account parse errors.
+  - `src/features/push/queue.test.ts` — `InMemoryPushQueue` contract.
+  - `src/features/push/worker.test.ts` — dispatch handler routes by
+    platform, PushResult-to-queue-action mapping.
+  - `src/features/push/service.test.ts` — disabled service no-op,
+    enabled service fan-out across multi-device.
 
 When the protocol changes, update both this doc and the relevant tests in
 the same PR. A doc that drifts from tests is worse than no doc.
