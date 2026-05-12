@@ -134,6 +134,65 @@ brew services restart caddy
 
 The `mkcert -install` step (only needed once per machine, in Phase 1) drops the mkcert root CA into the macOS / iOS Simulator trust stores. Physical devices need it installed manually — see `ios/README.md` and `android/README.md` for the per-platform steps.
 
+## WebSocket + push (Phase 10)
+
+The backend exposes a WebSocket endpoint at `/ws` for real-time freshness signals, and a push notification subsystem (APNs + FCM via pg-boss) for offline-device notifications. Both are off-by-default in dev — a fresh clone boots and runs without any Apple/Firebase credentials.
+
+### WebSocket endpoint
+
+`GET /ws?token=<access-jwt>` over Caddy → `wss://Santoshs-MacBook-Pro-48.local/ws?token=...`.
+
+Quick smoke test (with the backend running):
+
+```bash
+# Generate a JWT by signing up a throwaway user, then connect.
+# This script lives at /tmp/ws-verify.ts in dev; the protocol details
+# are in backend/docs/sync.md "WebSocket layer (Phase 10)".
+bun run /tmp/ws-verify.ts
+```
+
+The protocol is documented in `backend/docs/sync.md` — message types (`subscribe`/`unsubscribe`/`ping` → `ack`/`pong`/`event`/`error`), event-publish rules per mutation, and revocation semantics.
+
+### Push subsystem
+
+Off by default (`PUSH_ENABLED=false`). To enable:
+
+```bash
+# In backend/.env:
+PUSH_ENABLED=true
+
+# APNs (Apple Developer → Keys → Apple Push Notifications service):
+APNS_TEAM_ID=XXXXXXXXXX           # 10-char team id
+APNS_KEY_ID=YYYYYYYYYY            # 10-char key id assigned to the .p8
+APNS_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
+APNS_BUNDLE_ID=com.example.sharedlist
+APNS_USE_SANDBOX=true             # api.sandbox.push.apple.com for dev builds
+
+# FCM (Firebase console → Project settings → Service accounts → Generate new private key):
+FCM_PROJECT_ID=your-project-id
+FCM_SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"...","private_key":"...","client_email":"...","token_uri":"..."}'
+```
+
+When `PUSH_ENABLED=true`, the boot validator hard-fails if any of the above are missing — you can't half-enable push. With both blocks present, the worker starts on boot and processes jobs from the `push-send` pg-boss queue.
+
+`POST /devices` (auth required) registers an APNs / FCM token for the calling user. Same shape on iOS and Android — see `backend/docs/sync.md` for the request/response contract.
+
+### If pushes never arrive
+
+In order:
+
+1. **`PUSH_ENABLED=true` set?** Check via boot logs — they say "push service started" (enabled) or "push service disabled (PUSH_ENABLED=false)" (disabled).
+2. **Is the worker pulling jobs?** Check the `pgboss.job` table:
+   ```sql
+   SELECT name, state, retry_count, last_error
+   FROM pgboss.job
+   WHERE name = 'push-send'
+   ORDER BY created_on DESC LIMIT 10;
+   ```
+   `state='completed'` = success. `state='failed'` = retry limit exhausted (look at `last_error`).
+3. **Authentication failing?** APNs `InvalidProviderToken` / FCM OAuth 401 means the `.p8` / service-account JSON is corrupt. Boot doesn't smoke-test the PEM — a bad key surfaces as the first push attempt failing with `importPKCS8` or `FCM OAuth token request failed`. Fix the env var, restart, retry.
+4. **Token dead?** APNs `Unregistered` / FCM `UNREGISTERED` → the device uninstalled. Phase 16 will wire automatic cleanup; for now the row just sits there.
+
 ## Caddyfile location and editing
 
 The Caddyfile read by `brew services start caddy` is `/opt/homebrew/etc/Caddyfile`, which is a symlink to `backend/Caddyfile` (set up once during Phase 1). So:
